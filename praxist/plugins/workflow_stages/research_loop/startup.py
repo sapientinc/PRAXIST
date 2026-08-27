@@ -14,6 +14,7 @@ from typing import Any
 
 import yaml
 
+from praxist import __version__
 from praxist.core.budget import policy_for_ref
 from praxist.core.cache import build_cache_policy
 from praxist.core.credentials import (
@@ -717,7 +718,7 @@ def prepare_research_loop_plugin_run(
         "created_at": previous_run_metadata.get("created_at") or startup_time,
         "started_at": startup_time,
         "finalized_at": None,
-        "praxist_version": "0.3.0",
+        "praxist_version": __version__,
         "git_commit": source_snapshot["git_commit"],
         "workspace_hash": source_snapshot["workspace_hash"],
         "source_hash_algorithm": source_snapshot["source_hash_algorithm"],

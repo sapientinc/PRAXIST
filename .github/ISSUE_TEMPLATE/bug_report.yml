@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Praxist version or commit
-      placeholder: "praxist 0.3.0 or commit SHA"
+      placeholder: "praxist 0.5.0 or commit SHA"
     validations:
       required: true
   - type: input
