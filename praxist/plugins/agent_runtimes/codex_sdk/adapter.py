@@ -81,6 +81,8 @@ _SUBSCRIPTION_RUNTIME_OVERRIDES = (
 _SAFE_PROCESS_ENV_KEYS = frozenset(
     {
         "ALL_PROXY",
+        # Codex treats an empty override as an explicit blank runtime name.
+        "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
         "CURL_CA_BUNDLE",
         "HOME",
         "HTTPS_PROXY",

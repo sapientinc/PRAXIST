@@ -427,6 +427,34 @@ class CodexSdkRuntimeCredentialHookTest(unittest.TestCase):
         discover.assert_called_once_with("model_provider:openai_compatible")
 
 
+class CodexSdkProcessEnvironmentTest(unittest.TestCase):
+    def test_codex_originator_is_preserved_without_forwarding_credentials(self) -> None:
+        from praxist.plugins.agent_runtimes.codex_sdk.adapter import _client_process_env
+
+        source = {
+            "CODEX_INTERNAL_ORIGINATOR_OVERRIDE": "Codex Desktop",
+            "OPENAI_API_KEY": "openai-secret",
+            "PATH": "/test/bin",
+            "UNRELATED_SECRET": "other-secret",
+        }
+        with patch.dict(os.environ, source, clear=True):
+            process_env = _client_process_env(
+                "openai",
+                source,
+                Path("/private/codex"),
+                subscription=True,
+            )
+
+        self.assertEqual(
+            process_env["CODEX_INTERNAL_ORIGINATOR_OVERRIDE"],
+            "Codex Desktop",
+        )
+        self.assertEqual(process_env["PATH"], "/test/bin")
+        self.assertEqual(process_env["CODEX_HOME"], "/private/codex")
+        self.assertEqual(process_env["OPENAI_API_KEY"], "")
+        self.assertEqual(process_env["UNRELATED_SECRET"], "")
+
+
 class ChatGptModelCatalogTest(unittest.TestCase):
     def test_catalog_uses_private_staged_auth_and_closes_resources(self) -> None:
         from praxist.plugins.agent_runtimes.codex_sdk import adapter
