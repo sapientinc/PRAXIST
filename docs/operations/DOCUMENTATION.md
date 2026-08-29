@@ -26,7 +26,7 @@
 
 | File | Responsibility |
 | --- | --- |
-| `consent.py` | Consent-state storage: a `unset` / `granted` / `denied` state machine that fails closed; atomic writes (0600 permissions); consent records are bound to the Notice version — a version mismatch counts as no consent; Agent-assisted replies recognize only `Yes` / `Agree` / `No` / `Disagree` |
+| `consent.py` | Consent-state storage: an `unset` / `granted` / `denied` state machine that fails closed; atomic writes (0600 permissions); consent records are bound to the Notice version — a version mismatch counts as no consent; Agent-assisted replies recognize only `Yes` / `Agree` / `No` / `Disagree` |
 | `identity.py` | Environment identity: generated at random via UUIDv4 and persisted locally in `environment.json`; never derived from any personal, device, or task information |
 | `paths.py` | Fixed per-OS local file paths (Section 5); no environment-variable or project-level overrides |
 | `lifecycle.py` | Generation of run-level event IDs, telemetry run IDs, event sequence numbers, and the four lifecycle events |
