@@ -6,6 +6,8 @@ from collections.abc import Mapping
 
 OPENROUTER_CLAUDE_SDK_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_OPENAI_COMPAT_BASE_URL = "https://openrouter.ai/api/v1"
+ORCAROUTER_CLAUDE_SDK_BASE_URL = "https://api.orcarouter.ai"
+ORCAROUTER_OPENAI_COMPAT_BASE_URL = "https://api.orcarouter.ai/v1"
 DEEPSEEK_CLAUDE_SDK_BASE_URL = "https://api.deepseek.com/anthropic"
 DEEPSEEK_CLAUDE_DEFAULT_MODEL = "deepseek-v4-pro[1m]"
 DEEPSEEK_CLAUDE_DEFAULT_HAIKU_MODEL = "deepseek-v4-flash"
@@ -26,6 +28,20 @@ def normalize_openrouter_base_url(base_url: str) -> str:
     return cleaned
 
 
+def normalize_orcarouter_base_url(base_url: str) -> str:
+    """Return the OrcaRouter base URL expected by Claude SDK transports.
+
+    Mirrors :func:`normalize_openrouter_base_url`: OrcaRouter's
+    OpenAI-compatible endpoint includes ``/v1``, but Claude SDK calls must use
+    the parent endpoint or requests become ``/v1/v1/messages``.
+    """
+
+    cleaned = str(base_url).rstrip("/")
+    if cleaned == ORCAROUTER_OPENAI_COMPAT_BASE_URL:
+        return ORCAROUTER_CLAUDE_SDK_BASE_URL
+    return cleaned
+
+
 def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict[str, str | None]:
     """Capture the provider environment surface passed into research-loop runtimes."""
 
@@ -41,6 +57,7 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         "CLAUDE_CODE_SUBAGENT_MODEL": None,
         "CLAUDE_CODE_EFFORT_LEVEL": None,
         "OPENROUTER_API_KEY": None,
+        "ORCAROUTER_API_KEY": None,
         "OPENAI_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
     }
@@ -56,6 +73,19 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_AUTH_TOKEN": auth_token,
             "OPENROUTER_API_KEY": auth_token,
+        }
+    if model_provider_ref == "model_provider:orcarouter":
+        base_url = normalize_orcarouter_base_url(
+            env.get("ANTHROPIC_BASE_URL")
+            or env.get("ORCAROUTER_BASE_URL")
+            or ORCAROUTER_CLAUDE_SDK_BASE_URL
+        )
+        auth_token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ORCAROUTER_API_KEY")
+        return {
+            **base,
+            "ANTHROPIC_BASE_URL": base_url,
+            "ANTHROPIC_AUTH_TOKEN": auth_token,
+            "ORCAROUTER_API_KEY": auth_token,
         }
     if model_provider_ref == "model_provider:anthropic_messages":
         return {

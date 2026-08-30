@@ -7,6 +7,7 @@ Agent runtime plugins execute the agent loops.
 ## Built-In API Provider Shapes
 
 - `model_provider:openrouter` for OpenRouter-routed model names.
+- `model_provider:orcarouter` for OrcaRouter-routed model names.
 - `model_provider:openai_compatible` for OpenAI-compatible endpoints.
 - `model_provider:anthropic_messages` for native Anthropic Messages style.
 - `model_provider:deepseek_alias` for DeepSeek-compatible aliases.

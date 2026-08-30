@@ -130,6 +130,7 @@ The Codex app-server consumes the Responses protocol. API provider routing is:
 | OpenAI / `model_provider:openai_compatible` | Direct SDK/app-server connection |
 | `model_provider:deepseek_alias` | Private run-scoped `codex-relay` to DeepSeek Chat Completions |
 | `model_provider:openrouter` | Private run-scoped `codex-relay` to OpenRouter Chat Completions |
+| `model_provider:orcarouter` | Private run-scoped `codex-relay` to OrcaRouter Chat Completions |
 
 Praxist starts and stops the relay; operators must not launch a relay per peer.
 The relay listens only on an ephemeral local port and receives only the selected
@@ -142,7 +143,7 @@ reasoning overrides are added only when the task selects an explicit policy;
 
 Lossless context-efficiency controls are documented in
 [Cost Optimization](cost-optimization.md). The automatic policy applies to
-Codex-native mode and OpenRouter routes; direct DeepSeek is explicitly
+Codex-native mode and OpenRouter/OrcaRouter routes; direct DeepSeek is explicitly
 excluded.
 
 ## Reasoning Policy
@@ -172,8 +173,8 @@ private run-scoped relay injects the same policy into Chat Completions requests
 and retains the API provider's reasoning state across tool-call subrequests.
 Praxist does not summarize or reconstruct that state. Native Codex models,
 including Codex-native `gpt-5.6-luna`, receive the closest supported SDK effort
-(`max` maps to `xhigh`). OpenRouter's relay route uses its unified
-`reasoning.effort` object.
+(`max` maps to `xhigh`). OpenRouter and OrcaRouter relay routes use their
+unified `reasoning.effort` object.
 Models whose API provider contract requires reasoning may reject `off`; Praxist
 surfaces that API provider error and leaves the user's policy unchanged.
 

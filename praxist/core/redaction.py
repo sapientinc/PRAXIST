@@ -13,6 +13,7 @@ JSONValue = str | int | float | bool | None | list["JSONValue"] | dict[str, "JSO
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("bearer_token", re.compile(r"Bearer\s+[A-Za-z0-9._~+/=-]{8,}")),
     ("openrouter_key", re.compile(r"\bsk-or-v1-[A-Za-z0-9]{16,}\b")),
+    ("orcarouter_key", re.compile(r"\bsk-orca-[A-Za-z0-9]{16,}\b")),
     ("openai_style_key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9][A-Za-z0-9._-]{7,}\b")),
     ("github_token", re.compile(r"\bghp_[A-Za-z0-9_]{12,}\b")),
     (

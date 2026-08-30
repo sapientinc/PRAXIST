@@ -26,6 +26,16 @@ class NormalizeModelForApiFormatTest(unittest.TestCase):
             "anthropic/claude-opus-4.7",
         )
 
+    def test_orcarouter_keeps_vendor_prefix(self) -> None:
+        self.assertEqual(
+            modeling._normalize_model_for_api_format("anthropic/claude-opus-4.7", "orcarouter"),
+            "anthropic/claude-opus-4.7",
+        )
+        self.assertEqual(
+            modeling._normalize_model_for_api_format("orcarouter/auto", "orcarouter"),
+            "orcarouter/auto",
+        )
+
     def test_openrouter_keeps_bare_name_unchanged(self) -> None:
         # Bare name into openrouter is the operator's responsibility;
         # we never invent a prefix.

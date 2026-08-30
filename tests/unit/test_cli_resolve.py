@@ -55,6 +55,7 @@ class ResolveCliEndToEndTest(unittest.TestCase):
                     "MODEL": "",
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "",
                 },
                 clear=False,
             ),

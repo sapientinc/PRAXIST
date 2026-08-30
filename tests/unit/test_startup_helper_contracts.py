@@ -75,6 +75,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "deepseek-key",
                     "OPENROUTER_API_KEY": "openrouter-key",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -88,6 +89,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "openrouter-key",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -101,6 +103,21 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "orcarouter-key",
+                    "ANTHROPIC_API_KEY": "anthropic-key",
+                },
+                clear=False,
+            ):
+                self.assertEqual(
+                    startup.default_model_provider_for_task("task:x"),
+                    "model_provider:orcarouter",
+                )
+            with patch.dict(
+                os.environ,
+                {
+                    "DEEPSEEK_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -179,6 +196,22 @@ class StartupHelperContractsTest(unittest.TestCase):
                     },
                 )["ANTHROPIC_BASE_URL"],
                 "https://openrouter.ai/api/v1/messages",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:orcarouter",
+                    {
+                        "ORCAROUTER_BASE_URL": "https://api.orcarouter.ai/v1",
+                        "ORCAROUTER_API_KEY": "key",
+                    },
+                )["ANTHROPIC_BASE_URL"],
+                "https://api.orcarouter.ai",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:orcarouter", {"ORCAROUTER_API_KEY": "k"}
+                )["ORCAROUTER_API_KEY"],
+                "k",
             )
             self.assertEqual(
                 provider_env.freeze_provider_env(

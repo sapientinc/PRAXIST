@@ -48,6 +48,7 @@ class CredentialResolver:
             "model_provider:anthropic_messages",
         ),
         ("OPENROUTER_API_KEY", "model_provider", "openrouter", "model_provider:openrouter"),
+        ("ORCAROUTER_API_KEY", "model_provider", "orcarouter", "model_provider:orcarouter"),
         (
             "OPENAI_API_KEY",
             "model_provider",

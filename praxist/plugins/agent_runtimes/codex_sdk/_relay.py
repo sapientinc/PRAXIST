@@ -17,6 +17,7 @@ from pathlib import Path
 _PROVIDER_UPSTREAMS = {
     "deepseek": "https://api.deepseek.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
+    "orcarouter": "https://api.orcarouter.ai/v1",
     "kimi": "https://api.moonshot.cn/v1",
     "moonshot": "https://api.moonshot.cn/v1",
     "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -28,6 +29,7 @@ _PROVIDER_UPSTREAMS = {
 _PROVIDER_KEY_VARS = {
     "deepseek": "DEEPSEEK_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "orcarouter": "ORCAROUTER_API_KEY",
     "kimi": "MOONSHOT_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
     "qwen": "DASHSCOPE_API_KEY",
