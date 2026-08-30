@@ -2715,6 +2715,8 @@ class DoctorAndSetupTest(CliRunnerMixin, unittest.TestCase):
         self.assertFalse(profiles["codex-native"]["requires_api_key"])
         self.assertEqual(profiles["deepseek-api"]["agent_system"], "claude_sdk")
         self.assertTrue(profiles["deepseek-api"]["requires_api_key"])
+        self.assertEqual(profiles["orcarouter-api"]["agent_system"], "claude_sdk")
+        self.assertTrue(profiles["orcarouter-api"]["requires_api_key"])
         self.assertEqual(profiles["codex-native"]["authentication"], "saved_chatgpt_login")
 
     def test_codex_managed_status_does_not_treat_defaults_as_a_profile_choice(self) -> None:

@@ -113,6 +113,7 @@ _MODEL_CREDENTIAL_ENV_KEYS = frozenset(
         "MOONSHOT_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
+        "ORCAROUTER_API_KEY",
         "XAI_API_KEY",
     }
 )
@@ -929,7 +930,7 @@ def _client_key(request: AgentRunRequest, env: Mapping[str, str]) -> _ClientKey:
     digest = hashlib.sha256(identity.encode()).hexdigest()[:16] if identity else "none"
     reasoning_policy = (
         effective_reasoning_effort(request.runtime_options)
-        if provider in {"deepseek", "openrouter"}
+        if provider in {"deepseek", "openrouter", "orcarouter"}
         else "default"
     )
     return _ClientKey(
@@ -1027,12 +1028,12 @@ def _relay_reasoning_options(
     """Return provider-native reasoning overrides owned by the private relay."""
 
     provider = provider_name(request.model_call.provider_ref)
-    if provider not in {"deepseek", "openrouter"}:
+    if provider not in {"deepseek", "openrouter", "orcarouter"}:
         return None, ()
     policy = effective_reasoning_effort(request.runtime_options)
     if policy == "auto":
         return None, ()
-    if provider == "openrouter":
+    if provider in {"openrouter", "orcarouter"}:
         effort = "none" if policy == "off" else policy
         return {"reasoning": {"effort": effort}}, ()
     if policy == "off":

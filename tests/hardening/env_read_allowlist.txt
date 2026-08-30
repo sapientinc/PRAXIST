@@ -189,8 +189,11 @@ praxist/plugins/workflow_stages/research_loop/stage.py::DEEPSEEK_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENAI_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENROUTER_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENROUTER_BASE_URL
+praxist/plugins/workflow_stages/research_loop/stage.py::ORCAROUTER_API_KEY
+praxist/plugins/workflow_stages/research_loop/stage.py::ORCAROUTER_BASE_URL
 # startup.py reads PATH for subprocess env construction.
 praxist/plugins/workflow_stages/research_loop/startup.py::ANTHROPIC_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::DEEPSEEK_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::OPENROUTER_API_KEY
+praxist/plugins/workflow_stages/research_loop/startup.py::ORCAROUTER_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::PATH

@@ -1,0 +1,29 @@
+schema_version: 1
+name: orcarouter
+kind: model_provider
+version: 0.1.0
+protocol_version: 1
+stability: experimental
+description: OrcaRouter provider adapter spec.
+compatibility:
+  praxist_core: ">=0.1.0,<1.0"
+  python: ">=3.11"
+dependencies: []
+capabilities:
+  - provider.orcarouter
+  - provider.routing
+provider:
+  api_format: orcarouter
+  default_model: orcarouter/auto
+  cache_strategy: provider_default
+  usage_reporting: usage_or_usage_unknown
+  model_profiles:
+    cheap_peer: orcarouter/auto
+    strong_reasoner: orcarouter/auto
+  compatible_model_patterns:
+    - "orcarouter/*"
+    - "*/*"
+entrypoint: adapter:create_provider
+code:
+  - adapter.py
+assets: []

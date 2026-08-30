@@ -37,6 +37,7 @@ PROVIDER_KEY_MAP: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "xai": "XAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "orcarouter": "ORCAROUTER_API_KEY",
     "brave": "BRAVE_API_KEY",
 }
 """Known provider/tool credentials accepted by Praxist operator configuration."""
@@ -45,6 +46,7 @@ PROVIDER_REF_FOR_SHORT_NAME: dict[str, str] = {
     "anthropic": "model_provider:anthropic_messages",
     "openai": "model_provider:openai_compatible",
     "openrouter": "model_provider:openrouter",
+    "orcarouter": "model_provider:orcarouter",
     "deepseek": "model_provider:deepseek_alias",
 }
 """Canonical plugin ref for every built-in model provider."""
@@ -59,6 +61,7 @@ PROVIDER_BASE_URL: dict[str, str] = {
     "groq": "https://api.groq.com/openai/v1",
     "xai": "https://api.x.ai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
+    "orcarouter": "https://api.orcarouter.ai/v1",
 }
 
 

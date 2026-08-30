@@ -107,6 +107,7 @@ class PluginExecutableClosureTest(unittest.TestCase):
             "workflow_stage:research_loop",
             "budget_policy:default_basic",
             "model_provider:openrouter",
+            "model_provider:orcarouter",
             "tool_server:evaluation_tools",
             "tool_server:frontier_tools",
             "tool_server:finding_graph_query",
@@ -125,6 +126,7 @@ class PluginExecutableClosureTest(unittest.TestCase):
         self.assertTrue(hasattr(registry.require("workflow_stage", "research_loop"), "execute"))
         self.assertTrue(hasattr(registry.require("budget_policy", "default_basic"), "decide"))
         self.assertTrue(hasattr(registry.require("model_provider", "openrouter"), "build_call"))
+        self.assertTrue(hasattr(registry.require("model_provider", "orcarouter"), "build_call"))
         self.assertEqual(
             registry.require("tool_server", "memory_tools")["factory"],
             "praxist.plugins.tools.memory_tools.adapter:create_memory_tools_server",
@@ -174,6 +176,15 @@ class PluginExecutableClosureTest(unittest.TestCase):
         self.assertEqual(
             manifest["provider"]["model_profiles"]["cheap_peer"], "anthropic/claude-sonnet-4.5"
         )
+
+    def test_orcarouter_manifest_records_model_contract(self) -> None:
+        manifest = yaml.safe_load(
+            Path.cwd()
+            .joinpath("praxist", "plugins", "model_providers", "orcarouter", "plugin.yaml")
+            .read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["provider"]["api_format"], "orcarouter")
+        self.assertEqual(manifest["provider"]["default_model"], "orcarouter/auto")
 
     def test_project_agent_runtime_can_execute_through_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

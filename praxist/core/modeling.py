@@ -44,13 +44,14 @@ def normalize_model_for_provider(
 ) -> str:
     """Reshape a model name into the format the provider's api_format expects.
 
-    Openrouter uses ``vendor/model``; the other api_formats we ship
-    (``openai_compatible``, ``anthropic_messages``, ``fake``) consume
-    bare ``model`` names.  Operator configs and env vars often carry the
-    ``vendor/`` prefix as a leftover from the era when openrouter was
-    the only supported access path; this helper strips that prefix when
-    the resolved provider is not openrouter so the same configuration
-    works against either an aggregator or a direct provider endpoint.
+    OpenRouter and OrcaRouter use ``vendor/model``; the other api_formats
+    we ship (``openai_compatible``, ``anthropic_messages``, ``fake``)
+    consume bare ``model`` names.  Operator configs and env vars often
+    carry the ``vendor/`` prefix as a leftover from the era when
+    openrouter was the only supported access path; this helper strips
+    that prefix when the resolved provider is not openrouter or orcarouter
+    so the same configuration works against either an aggregator or a
+    direct provider endpoint.
     """
     if not model:
         return model
@@ -61,7 +62,7 @@ def normalize_model_for_provider(
 
 def _normalize_model_for_api_format(model: str, api_format: str) -> str:
     """Strip a ``vendor/`` prefix when the api_format does not use one."""
-    if not model or api_format == "openrouter":
+    if not model or api_format in {"openrouter", "orcarouter"}:
         return model
     if "/" in model:
         return model.split("/", 1)[1]
@@ -241,7 +242,7 @@ def _capability_tags(api_format: str) -> list[str]:
         return ["offline_fixture", "deterministic"]
     if api_format == "anthropic_messages":
         return ["long_context", "prompt_cache", "tool_use"]
-    if api_format == "openrouter":
+    if api_format in {"openrouter", "orcarouter"}:
         return ["routing", "openai_compatible", "tool_use"]
     return ["openai_compatible", "tool_use"]
 

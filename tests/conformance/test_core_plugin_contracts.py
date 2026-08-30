@@ -125,6 +125,7 @@ class CorePluginContractsTest(unittest.TestCase):
             "model_provider:anthropic_messages",
             "model_provider:openai_compatible",
             "model_provider:openrouter",
+            "model_provider:orcarouter",
             "model_provider:deepseek_alias",
         ):
             profile = default_model_profile(provider_ref)
@@ -134,6 +135,10 @@ class CorePluginContractsTest(unittest.TestCase):
 
         self.assertEqual(
             provider_for_ref("model_provider:openrouter").classify_error({"status": 429}),
+            "rate_limited",
+        )
+        self.assertEqual(
+            provider_for_ref("model_provider:orcarouter").classify_error({"status": 429}),
             "rate_limited",
         )
         self.assertEqual(

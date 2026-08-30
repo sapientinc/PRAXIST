@@ -117,6 +117,17 @@ SETUP_PROFILES: tuple[SetupProfile, ...] = (
         "requires an OpenRouter API key entered only through the local masked prompt",
     ),
     SetupProfile(
+        "orcarouter-api",
+        "OrcaRouter API",
+        "OrcaRouter model routing through claude_sdk",
+        "orcarouter",
+        "claude_sdk",
+        "orcarouter/auto",
+        True,
+        "provider_api_key",
+        "requires an OrcaRouter API key entered only through the local masked prompt",
+    ),
+    SetupProfile(
         "anthropic-api",
         "Anthropic API",
         "Anthropic Messages through claude_sdk",

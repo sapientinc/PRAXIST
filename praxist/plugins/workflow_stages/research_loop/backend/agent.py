@@ -87,6 +87,7 @@ from praxist.plugins.workflow_stages.research_loop.provider_env import (
     DEEPSEEK_CLAUDE_DEFAULT_MODEL,
     DEEPSEEK_CLAUDE_SDK_BASE_URL,
     normalize_openrouter_base_url,
+    normalize_orcarouter_base_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -626,6 +627,8 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
     provider_ref = os.environ.get("PRAXIST_MODEL_PROVIDER_REF", "")
     if provider_ref == "model_provider:openrouter":
         allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY")
+    elif provider_ref == "model_provider:orcarouter":
+        allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ORCAROUTER_API_KEY")
     elif provider_ref == "model_provider:anthropic_messages":
         allowed = ("ANTHROPIC_API_KEY",)
     elif provider_ref == "model_provider:openai_compatible":
@@ -674,6 +677,8 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
         if val:
             if provider_ref == "model_provider:openrouter" and var == "ANTHROPIC_BASE_URL":
                 val = normalize_openrouter_base_url(val)
+            if provider_ref == "model_provider:orcarouter" and var == "ANTHROPIC_BASE_URL":
+                val = normalize_orcarouter_base_url(val)
             env[var] = val
     if provider_ref == "model_provider:deepseek_alias":
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
@@ -956,7 +961,7 @@ def _lossless_context_efficiency_enabled() -> bool:
         return False
     if mode == "lossless":
         return True
-    if provider_ref == "model_provider:openrouter":
+    if provider_ref in {"model_provider:openrouter", "model_provider:orcarouter"}:
         return True
     return bool(
         os.environ.get("PRAXIST_AGENT_RUNTIME_REF", "").strip() == "agent_runtime:codex_sdk"

@@ -23,6 +23,7 @@ runtime:
   compatible_model_providers:
     - model_provider:openai_compatible
     - model_provider:openrouter
+    - model_provider:orcarouter
     - model_provider:deepseek_alias
   cache_strategy: runtime_auto_cache
   event_schema: praxist.agent_event.v1
