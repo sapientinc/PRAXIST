@@ -41,7 +41,7 @@ Check these surfaces:
 
 2. **Source checkouts near the current directory**
    - Inspect the current directory and one parent level for Praxist source trees.
-   - A source tree is likely present when `pyproject.toml` declares `name = "praxist"` and an `praxist/` package directory exists.
+   - A source tree is likely present when `pyproject.toml` declares `name = "praxist"` and a `praxist/` package directory exists.
    - If a source tree is git-managed, report branch and cleanliness with `git status --short --branch`.
 
 3. **Agent skill installation**

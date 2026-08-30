@@ -25,7 +25,7 @@ Praxist collects product-usage data only when **all three** of the following con
 
 1. the installed build contains an approved collection transport;
 2. product-usage collection is enabled for that build; and
-3. you separately and explicitly select **"Share product usage"** after this Notice is made available for review, or reply `Yes` / `Agree` to consent prompt shown during installation.
+3. you separately and explicitly select **"Share product usage"** after this Notice is made available for review, or reply `Yes` / `Agree` to a consent prompt shown during installation.
 
 Please note:
 
