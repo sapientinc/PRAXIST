@@ -212,6 +212,36 @@ class RunLifecycleGateContractsTest(unittest.TestCase):
                 "absolute_run_local",
             )
 
+    def test_relative_run_dir_accepts_an_absolute_run_local_stop_signal(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as tmp:
+            root = Path(tmp).relative_to(Path.cwd())
+            run_dir = root / "run"
+            run_dir.mkdir()
+            signal = (run_dir / "run_control" / "stop.json").resolve()
+
+            write_external_stop_signal(
+                run_dir,
+                {"reason": "absolute_run_local"},
+                stop_signal_path=str(signal),
+            )
+
+            self.assertTrue(signal.is_file())
+            decision = evaluate_run_stop_gate(
+                task_spec=SimpleNamespace(
+                    run_lifecycle=SimpleNamespace(
+                        max_wall_clock_hours=None,
+                        stop_signal_path=str(signal),
+                    )
+                ),
+                run_dir=run_dir,
+                run_started_at_seconds=10.0,
+                now_seconds=20.0,
+                next_generation=1,
+                generations_completed=1,
+            )
+            self.assertTrue(decision.should_stop)
+            self.assertEqual(decision.signal_evidence["reason"], "absolute_run_local")
+
     def test_stop_signal_paths_must_be_run_local_plain_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
