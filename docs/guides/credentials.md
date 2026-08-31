@@ -61,12 +61,12 @@ redacted identity; for file-based login it includes a hash of the stable account
 identifier, never a token. At runtime Praxist stages `auth.json`, when present,
 inside a private disposable OS-temporary Codex home so the app-server can
 refresh its own copy without writing the operator's `CODEX_HOME`. Keyring-backed
-login uses the same private empty home and the operating-system credential
-store. The private home is removed when its app-server closes and is never put
-in task files, run artifacts, logs, or replay. The runtime verifies the
-app-server account is actually `chatgpt` before starting a peer turn, blanks
-API-key endpoint overrides, and never falls back to an API or relay when
-Codex-native mode was selected.
+login retains the operator home as the stable operating-system keyring namespace;
+database and log state remain run-local. A private file-backed home is removed
+when its app-server closes and is never put in task files, run artifacts, logs,
+or replay. The runtime verifies the app-server account is actually `chatgpt`
+before starting a peer turn, blanks API-key endpoint overrides, and never falls
+back to an API or relay when Codex-native mode was selected.
 
 On resume, `--codex-native` may select saved-login authentication only when the
 existing run already has the canonical `codex_sdk` agent runtime and native OpenAI

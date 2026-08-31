@@ -904,6 +904,56 @@ class RuntimeExecutionTest(unittest.IsolatedAsyncioTestCase):
             await runtime.aclose()
             self.assertFalse(staged_home.exists())
 
+    async def test_chatgpt_subscription_preserves_keyring_home_identity(self) -> None:
+        from praxist.plugins.agent_runtimes.codex_sdk._auth import chatgpt_credential_key_id
+
+        runtime = CodexSdkRuntime()
+        self.addAsyncCleanup(runtime.aclose)
+        harness = _SdkHarness()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            codex_home = root / "operator-codex"
+            codex_home.mkdir()
+            marker = codex_home / "config.toml"
+            marker.write_text('model = "operator-default"\n', encoding="utf-8")
+            credential = CredentialRef(
+                scope="model_provider",
+                provider="openai_compatible",
+                target_ref="model_provider:openai_compatible",
+                key_id=chatgpt_credential_key_id(codex_home),
+                source="runtime_session",
+            )
+            with (
+                patch.object(adapter, "_load_sdk", side_effect=lambda: harness.sdk()),
+                patch.object(adapter, "start_relay") as relay,
+                patch.object(adapter, "resolve_codex_binary", return_value="/sdk/codex"),
+                patch.object(adapter, "verify_chatgpt_login"),
+                patch.dict("os.environ", {"CODEX_HOME": str(codex_home)}, clear=False),
+            ):
+                result = await runtime.execute(
+                    _request(
+                        str(run_dir),
+                        provider_ref="model_provider:openai_compatible",
+                        credential_ref=credential,
+                    ),
+                    AgentRuntimeExecutionContext(env={}),
+                )
+
+            self.assertTrue(result.success, result.error)
+            relay.assert_not_called()
+            client = harness.clients[0]
+            self.assertEqual(client.account_calls, [False])
+            config = harness.configs[0].kwargs
+            self.assertEqual(Path(config["env"]["CODEX_HOME"]), codex_home)
+            self.assertIn(
+                'cli_auth_credentials_store="keyring"',
+                config["config_overrides"],
+            )
+            await runtime.aclose()
+            self.assertEqual(marker.read_text(encoding="utf-8"), 'model = "operator-default"\n')
+
     async def test_chatgpt_subscription_rejects_non_chatgpt_app_server_account(self) -> None:
         from praxist.plugins.agent_runtimes.codex_sdk._auth import chatgpt_credential_key_id
 

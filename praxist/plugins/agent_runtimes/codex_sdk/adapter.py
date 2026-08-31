@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 import threading
 from collections.abc import Awaitable, Callable, Iterator, Mapping
 from concurrent.futures import Future as ConcurrentFuture
@@ -809,22 +810,37 @@ def available_chatgpt_models() -> tuple[str, ...]:
     client: Any | None = None
     try:
         sdk = _load_sdk()
-        config = sdk["CodexConfig"](
-            codex_bin=resolve_codex_binary(),
-            config_overrides=_SUBSCRIPTION_RUNTIME_OVERRIDES,
-            env=_client_process_env("openai", os.environ, staged.path, subscription=True),
-        )
-        client = sdk["Codex"](config)
-        response = client.models(include_hidden=False)
-        return tuple(
-            sorted(
-                {
-                    str(item.model).strip()
-                    for item in getattr(response, "data", ())
-                    if str(getattr(item, "model", "")).strip()
-                }
-            )
-        )
+        with tempfile.TemporaryDirectory(prefix="praxist-codex-probe-") as state_dir:
+            try:
+                config = sdk["CodexConfig"](
+                    codex_bin=resolve_codex_binary(),
+                    config_overrides=(
+                        "cli_auth_credentials_store=" + json.dumps(staged.credential_store),
+                        f"sqlite_home={json.dumps(state_dir)}",
+                        f"log_dir={json.dumps(state_dir)}",
+                        *_SUBSCRIPTION_RUNTIME_OVERRIDES,
+                    ),
+                    env=_client_process_env("openai", os.environ, staged.path, subscription=True),
+                )
+                client = sdk["Codex"](config)
+                account = client.account(refresh_token=False)
+                if _codex_account_type(account) != "chatgpt":
+                    raise RuntimeError("Codex app-server did not select ChatGPT authentication")
+                response = client.models(include_hidden=False)
+                return tuple(
+                    sorted(
+                        {
+                            str(item.model).strip()
+                            for item in getattr(response, "data", ())
+                            if str(getattr(item, "model", "")).strip()
+                        }
+                    )
+                )
+            finally:
+                if client is not None:
+                    with contextlib.suppress(Exception):
+                        client.close()
+                    client = None
     except Exception:  # noqa: BLE001 - never expose account or app-server details.
         raise RuntimeError("Unable to read the available ChatGPT Codex model catalog") from None
     finally:
