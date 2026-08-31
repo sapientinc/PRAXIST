@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Protocol
 
 from praxist.core.protocol import BudgetDecision, BudgetRequest
@@ -20,7 +21,7 @@ ALLOWED_BUDGET_UNITS = {"tokens", "wall_clock_seconds", "gpu_hours"}
 class BudgetPolicy(Protocol):
     """Protocol for deterministic budget policies that turn requests into grants, denials, or review decisions."""
 
-    def decide(self, request: BudgetRequest) -> BudgetDecision: ...
+    def decide(self, request: BudgetRequest, *, allow_uncapped: bool = False) -> BudgetDecision: ...
 
 
 def policy_for_ref(policy_ref: str, registry: PluginRegistry | None = None) -> BudgetPolicy:
@@ -53,11 +54,13 @@ def _load_single_budget_registry(ref: str) -> PluginRegistry:
     return loader.load(manifest)
 
 
-def _invalid_budget_units(values: dict[str, float]) -> list[str]:
+def _invalid_budget_units(values: Mapping[str, float | None]) -> list[str]:
     invalid = []
     for unit, raw_value in values.items():
         if unit not in ALLOWED_BUDGET_UNITS:
             invalid.append(str(unit))
+            continue
+        if raw_value is None:
             continue
         try:
             value = float(raw_value)

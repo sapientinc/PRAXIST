@@ -683,7 +683,7 @@ def _truncate_memo_for_round2(memo: Any, max_tokens: int = 2000) -> Any:
 async def _run_round2_parallel(
     pis: list[BasePI],
     pi_memos: dict[str, Any],
-    round2_max_runtime_minutes: int,
+    round2_max_runtime_minutes: int | None,
     rng_seed: int,
 ) -> tuple[dict[str, Any], dict[str, dict[str, str]]]:
     """Round 2 cross-review: each PI sees anonymized peers and answers 6 Qs.
@@ -817,12 +817,12 @@ async def run_panel(
     target_decisions: list[str] | None = None,
     findings_summary: dict[str, Any] | None = None,
     mcp_servers: dict[str, Any] | None = None,
-    pi_max_runtime_minutes: int = 12,
-    chair_max_runtime_minutes: int = 8,
+    pi_max_runtime_minutes: int | None = 12,
+    chair_max_runtime_minutes: int | None = 8,
     stop_check_fn: Callable[[], bool] | None = None,
     auto_escalate_to_high_stakes: bool = True,
     n_rounds: int = 2,
-    round2_max_runtime_minutes: int = 6,
+    round2_max_runtime_minutes: int | None = 6,
     # 2026-05-07: bound pair with 1M beta — activates adaptive thinking +
     # max effort on all PI (Round 1 + Round 2) + Chair BaseAgent calls.
     premium_mode: bool = False,
@@ -1060,7 +1060,12 @@ async def run_panel(
         # 3 peer memos plus own memo. Bump the per-PI Round 2 budget
         # by 50% so we have headroom for slower API responses + parsing.
         effective_r2_max = round2_max_runtime_minutes
-        if panel_mode == "high_stakes" and effective_r2_max < 9:
+        if (
+            panel_mode == "high_stakes"
+            and shared_core.get("research_loop_mode") != "scoreless"
+            and effective_r2_max is not None
+            and effective_r2_max < 9
+        ):
             logger.info(
                 "panel_runner: high_stakes mode auto-bumps Round 2 "
                 "budget %d → 9 min for headroom (4 peers vs 2 in full)",
@@ -1180,8 +1185,10 @@ async def run_panel(
         task_project_path=task_project_path,
         plugin_registry=registry,
     )
-    chair_deadline = asyncio.get_running_loop().time() + max(
-        0.0, float(chair_max_runtime_minutes) * 60.0
+    chair_deadline = (
+        asyncio.get_running_loop().time() + max(0.0, float(chair_max_runtime_minutes) * 60.0)
+        if chair_max_runtime_minutes is not None
+        else None
     )
     chair_result = await chair.run(
         shared_core_digest=panel_shared_core,
@@ -1278,9 +1285,13 @@ async def run_panel(
                 out_dir / "chair_error.txt",
                 lambda f: f.write("machine validation failed: " + "; ".join(retry_issues)),
             )
-        remaining_seconds = chair_deadline - asyncio.get_running_loop().time()
+        remaining_seconds = (
+            chair_deadline - asyncio.get_running_loop().time()
+            if chair_deadline is not None
+            else None
+        )
         retry_result = None
-        if remaining_seconds > 0:
+        if remaining_seconds is None or remaining_seconds > 0:
             try:
                 retry_result = await asyncio.wait_for(
                     chair.run(

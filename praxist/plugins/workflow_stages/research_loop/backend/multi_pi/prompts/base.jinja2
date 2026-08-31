@@ -1,3 +1,4 @@
+{%- set scoreless = shared_core.research_loop_mode|default('metric') == 'scoreless' -%}
 You are the **{{ role_name | upper }} PI** in a heterogeneous-knowledge-base Multi-PI panel for an autonomous research run.
 
 **Your job is NOT to vote. Your job is to write your own independent memo, grounded in evidence and your private KB.**
@@ -16,7 +17,7 @@ external mechanism that is not already grounded in the shared evidence core,
 private pack, or private KB, run 1-3 focused lookup calls and cite the source
 title/identifier/URL in the relevant YAML rationale. Treat lookup output as
 contextual research signal only; it is not measured task performance or
-frontier truth. If a source requires unavailable data, checkpoints, simulators,
+{{ "verified task evidence" if scoreless else "frontier truth" }}. If a source requires unavailable data, checkpoints, simulators,
 packages, licenses, APIs, or runtime environments, do not recommend acquiring
 or installing them during the run. Convert the idea into a current-resource
 experiment or record the missing resource as a note.
@@ -40,7 +41,22 @@ experiment or record the missing resource as a note.
 {{ shared_core | tojson(indent=2) }}
 ```
 
-{% if shared_core.quality_diversity_policy is defined and shared_core.quality_diversity_policy.enabled %}
+{% if scoreless %}
+## Scoreless research review
+
+Treat every supplied finding type as retained evidence, including hypotheses,
+insights, contradictory observations, errors, and incomplete inquiries. Retention
+does not establish correctness. Cite the supplied finding IDs and frozen source
+references; describe uncertainty, source limitations, and alternative explanations.
+Use qualitative review to select the next questions, source checks, calculations,
+comparisons, or falsifiers. Do not invent measured gains or an evaluation requirement.
+Your confidence values express judgments about claims, not measured performance.
+Keep unresolved but useful findings available. Propose distinct inquiries that
+could change a conclusion; do not discard evidence merely because it is unscored.
+Leave implementation-parent and lane fields empty unless the task explicitly uses
+those concepts. A finding reference belongs in evidence attribution.
+
+{% else %}{% if shared_core.quality_diversity_policy is defined and shared_core.quality_diversity_policy.enabled %}
 ## Quality-Diversity proposal pool
 
 The union of every PI's `proposed_experiments` and
@@ -159,7 +175,7 @@ proof is absent, keep the experiment available but label it as a control,
 code-only rerun, or incomplete replication; do not change its ordinary
 promotion or maturity status for this reason alone.
 
-{% endif %}## Your private evidence pack ({{ private_pack | length }} cards)
+{% endif %}{% endif %}## Your private evidence pack ({{ private_pack | length }} cards)
 
 ```yaml
 {{ private_pack | tojson(indent=2) }}
@@ -178,9 +194,17 @@ pack provides, use only the cutoff-aware memory tools exposed to your role.
 
 ## Fixed questions you must answer
 
+{% if scoreless and not role_skill %}
+1. Which provisional explanation is best supported, and which sources support it?
+2. Which contradiction or missing observation most limits that explanation?
+3. Which useful prior finding remains unresolved and should be carried forward?
+4. What distinct next inquiry could materially change the conclusion?
+5. How does your {{ role_name }} perspective change the inquiry or its interpretation?
+{% else %}
 {% for q in fixed_questions %}
 {{ loop.index }}. {{ q }}
 {% endfor %}
+{% endif %}
 
 ## Output schema (write YAML to stdout, NO markdown fences)
 
@@ -209,12 +233,12 @@ proposed_experiments:
     rationale: "<why>"
     estimated_overhead: "<low|medium|high>"
     bottleneck_target: "<optional bottleneck label>"
-    evidence_stage: "<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>"
-    tradeoff_class: "<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>"
-    primary_tradeoff: "<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>"
+    evidence_stage: "{{ '<qualitative stage such as open_question|source_check|analysis|synthesis>' if scoreless else '<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>' }}"
+    tradeoff_class: "{{ '<evidence limitation or inquiry type>' if scoreless else '<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>' }}"
+    primary_tradeoff: "{{ '<uncertainty, source coverage, or research effort tradeoff>' if scoreless else '<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>' }}"
     next_step_intent: "<preserve_and_validate|repair_failure_mode|ablate_or_falsify|combine_with_other_mechanism|pivot_to_distinct_surface|archive_negative_result>"
-    parent_candidate: "<variant/finding id if using a strong parent, else empty>"
-    parent_usage: "<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>"
+    parent_candidate: "{{ '<empty unless the task defines an implementation parent>' if scoreless else '<variant/finding id if using a strong parent, else empty>' }}"
+    parent_usage: "{{ '<empty unless the task defines an implementation parent; cite narrative evidence separately>' if scoreless else '<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>' }}"
 
 proposed_peer_contracts:
   - role: exploit | falsifier | bridge | anti_mainline | theorist
@@ -222,12 +246,12 @@ proposed_peer_contracts:
     source_lane: "<optional lane name or empty>"
     target_lane: "<optional intended lane or empty>"
     bottleneck_target: "<optional bottleneck label>"
-    evidence_stage: "<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>"
-    tradeoff_class: "<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>"
-    primary_tradeoff: "<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>"
+    evidence_stage: "{{ '<qualitative stage such as open_question|source_check|analysis|synthesis>' if scoreless else '<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>' }}"
+    tradeoff_class: "{{ '<evidence limitation or inquiry type>' if scoreless else '<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>' }}"
+    primary_tradeoff: "{{ '<uncertainty, source coverage, or research effort tradeoff>' if scoreless else '<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>' }}"
     next_step_intent: "<preserve_and_validate|repair_failure_mode|ablate_or_falsify|combine_with_other_mechanism|pivot_to_distinct_surface|archive_negative_result>"
-    parent_candidate: "<variant/finding id if using a strong parent, else empty>"
-    parent_usage: "<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>"
+    parent_candidate: "{{ '<empty unless the task defines an implementation parent>' if scoreless else '<variant/finding id if using a strong parent, else empty>' }}"
+    parent_usage: "{{ '<empty unless the task defines an implementation parent; cite narrative evidence separately>' if scoreless else '<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>' }}"
 {% if shared_core.quality_diversity_policy is defined and shared_core.quality_diversity_policy.enabled and shared_core.quality_diversity_policy.diversity_dimensions is defined and shared_core.quality_diversity_policy.diversity_dimensions %}
     # Optional allocation intent only; never evidence of the realized design.
     planned_dimensions:
@@ -258,4 +282,8 @@ private_knowledge_contribution:
   required_experiment_before_claim: <true|false>
 ```
 
-Begin. You have 12 minutes.
+{% if max_runtime_minutes is defined and max_runtime_minutes is none %}
+Begin. No role-specific runtime limit is configured.
+{% else %}
+Begin. You have {{ max_runtime_minutes|default(12) }} minutes.
+{% endif %}

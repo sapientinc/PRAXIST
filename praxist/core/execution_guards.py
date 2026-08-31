@@ -179,7 +179,9 @@ class BudgetedActionGuard:
             unknown_units = [
                 unit
                 for unit in sorted({str(item) for item in expected_units})
-                if unit in approved and unit not in usage and _positive_amount(approved.get(unit))
+                if unit in approved
+                and unit not in usage
+                and (approved[unit] is None or _positive_amount(approved[unit]))
             ]
             usage_record = None
             unknown_record = None

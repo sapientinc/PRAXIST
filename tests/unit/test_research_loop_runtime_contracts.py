@@ -2143,7 +2143,7 @@ class EventAndStatusContractsTest(unittest.TestCase):
             self.assertEqual(request.run_id, "run")
             self.assertEqual(request.prompt_ref["kind"], "prompt_layout_v1")
             self.assertEqual(request.model_call.provider_ref, "model_provider:openrouter")
-            self.assertEqual(request.timeout_seconds, 0)
+            self.assertIsNone(request.timeout_seconds)
             self.assertIn("evaluation-tools", request.tool_servers[0]["server_name"])
             with patch.dict(os.environ, {}, clear=True):
                 self.assertEqual(

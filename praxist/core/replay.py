@@ -17,6 +17,7 @@ from typing import Any
 import yaml
 
 from praxist.core.budget import ALLOWED_BUDGET_UNITS, policy_for_ref
+from praxist.core.controller_state import read_private_startup_config
 from praxist.core.prompt_layout import sha256_json, sha256_text
 from praxist.core.protocol import BudgetRequest
 from praxist.core.redaction import scan_file
@@ -138,6 +139,13 @@ def verify_run(
     run_json = _read_json(run_dir / "run.json", errors)
     run_summary = _read_json(run_dir / "run_summary.json", errors)
     startup_config = _read_json(run_dir / "startup_config.json", errors)
+    try:
+        private_startup = read_private_startup_config(run_dir)
+    except ValueError as exc:
+        errors.append(f"private startup authority is unavailable for budget replay: {exc}")
+        private_startup = {}
+    if private_startup is not None:
+        startup_config = private_startup
     plugin_resolution = _read_json(run_dir / "plugin_resolution.json", errors)
     model_profiles = _read_json(run_dir / "model_profiles.json", errors)
     credentials_redacted = _read_json(run_dir / "credentials_redacted.json", errors)
@@ -171,7 +179,14 @@ def verify_run(
     budget_ledger, budget_errors = read_jsonl(run_dir / "budget_ledger.jsonl")
     if budget_errors:
         errors.extend(budget_errors)
-    _verify_budget_ledger(budget_ledger, _budget_policy_ref(startup_config), errors, warnings)
+    authorization = (startup_config or {}).get("budget_authorization")
+    _verify_budget_ledger(
+        budget_ledger,
+        _budget_policy_ref(startup_config),
+        errors,
+        warnings,
+        allow_uncapped=isinstance(authorization, dict) and authorization.get("uncapped") is True,
+    )
     findings, finding_errors = read_jsonl(run_dir / "findings" / "findings.jsonl")
     frontier, frontier_errors = read_jsonl(run_dir / "findings" / "frontier.jsonl")
     research_memory, memory_errors = read_jsonl(run_dir / "memory" / "research_memory.jsonl")
@@ -485,6 +500,8 @@ def _verify_budget_ledger(
     budget_policy_ref: str | None,
     errors: list[str],
     warnings: list[str],
+    *,
+    allow_uncapped: bool = False,
 ) -> None:
     grants: dict[str, dict[str, Any]] = {}
     usage_totals: dict[str, dict[str, float]] = {}
@@ -525,7 +542,7 @@ def _verify_budget_ledger(
                             f"budget decision {record.get('record_id')} request_record does not match prior request"
                         )
                     _verify_budget_decision_against_policy(
-                        record, request, budget_policy_ref, errors
+                        record, request, budget_policy_ref, errors, allow_uncapped=allow_uncapped
                     )
         if (
             kind == "decision"
@@ -619,6 +636,9 @@ def _verify_budget_ledger(
                     f"budget usage {record.get('record_id')} uses unapproved budget unit: {unit}"
                 )
                 continue
+            if approved[unit] is None:
+                totals[unit] = totals.get(unit, 0.0) + amount
+                continue
             try:
                 approved_amount = float(approved[unit])
             except (TypeError, ValueError):
@@ -638,6 +658,12 @@ def _verify_budget_ledger(
         if not isinstance(approved, dict):
             continue
         for unit, raw_approved in approved.items():
+            if raw_approved is None:
+                if unit not in totals and unit not in unknown_units:
+                    warnings.append(
+                        f"budget usage for grant {grant_id} missing uncapped unit and usage_unknown: {unit}"
+                    )
+                continue
             try:
                 approved_amount = float(raw_approved)
             except (TypeError, ValueError):
@@ -1275,6 +1301,8 @@ def _verify_budget_decision_against_policy(
     request: BudgetRequest,
     budget_policy_ref: str | None,
     errors: list[str],
+    *,
+    allow_uncapped: bool = False,
 ) -> None:
     if not budget_policy_ref:
         errors.append(
@@ -1282,7 +1310,13 @@ def _verify_budget_decision_against_policy(
         )
         return
     try:
-        expected_decision = policy_for_ref(budget_policy_ref).decide(request).to_dict()
+        policy = policy_for_ref(budget_policy_ref)
+        decision = (
+            policy.decide(request, allow_uncapped=True)
+            if allow_uncapped and any(amount is None for amount in request.requested.values())
+            else policy.decide(request)
+        )
+        expected_decision = decision.to_dict()
     except Exception as exc:  # noqa: BLE001 - replay should surface policy load errors.
         errors.append(f"budget decision {record.get('record_id')} policy replay failed: {exc}")
         return
@@ -1581,6 +1615,8 @@ def _verify_budget_amounts(values: dict[str, Any], label: str, errors: list[str]
     for unit, raw_value in values.items():
         if unit not in ALLOWED_BUDGET_UNITS:
             errors.append(f"budget {label} has unsupported unit: {unit}")
+            continue
+        if raw_value is None:
             continue
         try:
             value = float(raw_value)

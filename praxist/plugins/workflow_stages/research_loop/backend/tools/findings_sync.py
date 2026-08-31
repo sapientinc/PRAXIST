@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from praxist.core.storage import read_file_bytes
 from praxist.plugins.workflow_stages.research_loop.backend.event_wait import (
     wait_for_filesystem_event,
 )
@@ -37,6 +38,8 @@ def _finding_generation_id(finding: dict[str, Any]) -> int | None:
     value = finding.get("generation_id")
     if value is None and isinstance(finding.get("metrics"), dict):
         value = finding["metrics"].get("source_generation_id")
+    if value is None:
+        return None
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -61,8 +64,9 @@ def _is_sync_source_event(path: Path, *, findings_dir: Path, results_dir: Path) 
     except ValueError:
         return False
     try:
-        payload = json.loads(candidate.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        # Preserve the original path so the safe reader can reject its links.
+        payload = json.loads(read_file_bytes(Path(path)).decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return True
     if not isinstance(payload, dict):
         return True
@@ -279,19 +283,25 @@ class FindingsSync:
     def _current_generation_hint(self) -> int:
         status_path = self.run_dir / "orchestrator_status.json"
         try:
-            status = json.loads(status_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            status = json.loads(read_file_bytes(status_path).decode("utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
             return 0
         if not isinstance(status, dict):
             return 0
         for key in ("current_generation", "active_generation", "generation"):
+            raw_value = status.get(key)
+            if raw_value is None:
+                continue
             try:
-                value = int(status.get(key))
+                value = int(raw_value)
             except (TypeError, ValueError):
                 continue
             return max(0, value)
+        raw_completed = status.get("completed_generations")
+        if raw_completed is None:
+            return 0
         try:
-            completed = int(status.get("completed_generations"))
+            completed = int(raw_completed)
         except (TypeError, ValueError):
             return 0
         return max(0, completed)

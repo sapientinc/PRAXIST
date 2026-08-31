@@ -465,7 +465,7 @@ class BasePI:
         run_dir: Path,
         workspace: Path,
         model: str,
-        max_runtime_minutes: int = 12,
+        max_runtime_minutes: int | None = 12,
         mcp_servers: dict[str, Any] | None = None,
         stop_check_fn: Callable[[], bool] | None = None,
         # 2026-05-07: passed to BaseAgent so PI Round 1 / Round 2 can
@@ -503,6 +503,7 @@ class BasePI:
         )
         self.plugin_registry = plugin_registry
         self._role_skill: RoleSkill | None | bool = None
+        self._research_loop_mode = "metric"
 
     # ------------------------------------------------------------------ private KB
 
@@ -644,8 +645,13 @@ class BasePI:
             )
             tpl = env.get_template("base.jinja2")
         role_skill = self.skill()
+        # Round 2 retains controller-supplied mode even if the model's memo omits it.
+        self._research_loop_mode = (
+            "scoreless" if shared_core.get("research_loop_mode") == "scoreless" else "metric"
+        )
         return tpl.render(
             role_name=self.role_name,
+            max_runtime_minutes=self.max_runtime_minutes,
             role_skill=role_skill.to_prompt_context() if role_skill is not None else {},
             shared_core=shared_core,
             private_pack=private_pack,
@@ -706,6 +712,7 @@ class BasePI:
             # first production panel attempt (commit 11fa826).
             agent = BaseAgent(
                 name=f"pi_{self.role_name}_round1",
+                execution_role="pi",
                 allowed_tools=allowed_tools,
                 workspace=self.workspace,
                 mcp_servers=self.mcp_servers,
@@ -717,7 +724,9 @@ class BasePI:
             )
             result = await asyncio.wait_for(
                 agent.execute(task=prompt),
-                timeout=self.max_runtime_minutes * 60,
+                timeout=(
+                    self.max_runtime_minutes * 60 if self.max_runtime_minutes is not None else None
+                ),
             )
             if not result.success:
                 return PIMemo(
@@ -784,7 +793,7 @@ class BasePI:
             )
         except TimeoutError:
             logger.warning(
-                "PI %s: timed out after %d min", self.role_name, self.max_runtime_minutes
+                "PI %s: timed out after %s min", self.role_name, self.max_runtime_minutes
             )
             return PIMemo(
                 role=self.role_name,
@@ -821,7 +830,7 @@ class BasePI:
         self,
         own_memo: dict[str, Any],
         anon_peers: dict[str, dict[str, Any]],
-        round2_max_runtime_minutes: int = 6,
+        round2_max_runtime_minutes: int | None = 6,
     ) -> PIMemo:
         """Round 2 LLM call: read anonymized peer memos, answer 6 fixed questions.
 
@@ -862,6 +871,8 @@ class BasePI:
 
         prompt = tpl.render(
             role_name=self.role_name,
+            max_runtime_minutes=round2_max_runtime_minutes,
+            research_loop_mode=self._research_loop_mode,
             own_memo=own_memo or {},
             anon_peers=anon_peers or {},
             peer_count=len(anon_peers or {}),
@@ -889,6 +900,7 @@ class BasePI:
             # CRIT-fix: pass `name` (BaseAgent requires it).
             agent = BaseAgent(
                 name=f"pi_{self.role_name}_round2",
+                execution_role="review",
                 allowed_tools=allowed_tools,
                 workspace=self.workspace,
                 mcp_servers=self.mcp_servers,
@@ -900,7 +912,11 @@ class BasePI:
             )
             result = await asyncio.wait_for(
                 agent.execute(task=prompt),
-                timeout=round2_max_runtime_minutes * 60,
+                timeout=(
+                    round2_max_runtime_minutes * 60
+                    if round2_max_runtime_minutes is not None
+                    else None
+                ),
             )
             if not result.success:
                 return PIMemo(
@@ -979,7 +995,7 @@ class BasePI:
             )
         except TimeoutError:
             logger.warning(
-                "PI %s: round2 timed out after %d min",
+                "PI %s: round2 timed out after %s min",
                 self.role_name,
                 round2_max_runtime_minutes,
             )

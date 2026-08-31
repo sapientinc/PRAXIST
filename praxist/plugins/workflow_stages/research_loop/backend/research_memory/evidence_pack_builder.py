@@ -64,6 +64,7 @@ from praxist.plugins.workflow_stages.research_loop.backend.research_memory.retri
     negative_evidence_ratio,
     select_cards_with_mix,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import load_scoreless_evidence
 from praxist.task_spec_compat import legacy_primary_metric_keys
 
 logger = logging.getLogger(__name__)
@@ -1950,6 +1951,7 @@ def build_shared_core(
     findings_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the digest that ALL PIs see verbatim."""
+    scoreless = (findings_summary or {}).get("research_loop_mode") == "scoreless"
     bridge_grids = []
     grid_summaries = []
     for e in coverage_matrix.all():
@@ -1973,41 +1975,61 @@ def build_shared_core(
                 }
             )
 
-    validation_candidates = _digest_validation_candidates(
-        run_dir,
-        max_entries=_VALIDATION_CANDIDATES_SHARED_CORE_CAP,
-        current_gen_id=current_gen_id,
-    )
-    all_validation_candidates = _digest_validation_candidates(
-        run_dir,
-        max_entries=10_000,
-        current_gen_id=current_gen_id,
-    )
-    total_validation_candidates = len(all_validation_candidates)
-    validation_candidates_source_ref = _write_validation_candidates_artifact(
-        run_dir,
-        current_gen_id=current_gen_id,
-        validation_candidates=all_validation_candidates,
-    )
-    validation_candidate_ids = sorted(
-        _validation_candidate_aliases_from_manifest(
+    validation_candidates = (
+        []
+        if scoreless
+        else _digest_validation_candidates(
             run_dir,
+            max_entries=_VALIDATION_CANDIDATES_SHARED_CORE_CAP,
             current_gen_id=current_gen_id,
         )
-        | {
-            str(value).strip()
-            for entry in all_validation_candidates
-            if isinstance(entry, dict)
-            for value in _iter_validation_identity_values(entry)
-            if value not in (None, "", [], {})
-        }
+    )
+    all_validation_candidates = (
+        []
+        if scoreless
+        else _digest_validation_candidates(
+            run_dir,
+            max_entries=10_000,
+            current_gen_id=current_gen_id,
+        )
+    )
+    total_validation_candidates = len(all_validation_candidates)
+    validation_candidates_source_ref = (
+        ""
+        if scoreless
+        else _write_validation_candidates_artifact(
+            run_dir,
+            current_gen_id=current_gen_id,
+            validation_candidates=all_validation_candidates,
+        )
+    )
+    validation_candidate_ids = (
+        []
+        if scoreless
+        else sorted(
+            _validation_candidate_aliases_from_manifest(
+                run_dir,
+                current_gen_id=current_gen_id,
+            )
+            | {
+                str(value).strip()
+                for entry in all_validation_candidates
+                if isinstance(entry, dict)
+                for value in _iter_validation_identity_values(entry)
+                if value not in (None, "", [], {})
+            }
+        )
     )
 
     lane_entry_counts: dict[str, int] = {}
-    lane_frontiers = _digest_lane_frontiers(
-        run_dir,
-        current_gen_id=current_gen_id,
-        total_entries_by_lane=lane_entry_counts,
+    lane_frontiers = (
+        {}
+        if scoreless
+        else _digest_lane_frontiers(
+            run_dir,
+            current_gen_id=current_gen_id,
+            total_entries_by_lane=lane_entry_counts,
+        )
     )
     shared_core = {
         "shared_core_id": "",  # filled below
@@ -2017,8 +2039,12 @@ def build_shared_core(
             "current_gen_id": current_gen_id,
             "target_decisions": list(target_decisions),
         },
-        "current_frontier": _digest_frontier(frontier_delta_ledger, current_gen_id),
-        "current_frontier_scope": "latest_per_axis_generation_delta_anchors",
+        "current_frontier": {}
+        if scoreless
+        else _digest_frontier(frontier_delta_ledger, current_gen_id),
+        "current_frontier_scope": "not_applicable"
+        if scoreless
+        else "latest_per_axis_generation_delta_anchors",
         "lane_frontiers": lane_frontiers,
         "validation_candidates": validation_candidates,
         "validation_candidates_meta": {
@@ -2030,8 +2056,10 @@ def build_shared_core(
             "validator_id_count": len(validation_candidate_ids),
             "full_source_ref": validation_candidates_source_ref,
         },
-        "gems": _digest_gems(run_dir, current_gen_id=current_gen_id),
-        "frontier_lane_metadata": _digest_frontier_lane_metadata(
+        "gems": {} if scoreless else _digest_gems(run_dir, current_gen_id=current_gen_id),
+        "frontier_lane_metadata": {}
+        if scoreless
+        else _digest_frontier_lane_metadata(
             run_dir,
             total_entries_by_lane=lane_entry_counts,
             returned_entries_by_lane=lane_frontiers,
@@ -2072,9 +2100,51 @@ def build_shared_core(
             for e in negative_evidence_ledger.list_recent(n=60)
             if _within_generation_cutoff(e, current_gen_id)
         ][:12],
-        "role_performance": _digest_role_roi(role_roi_ledger, current_gen_id),
+        "role_performance": {} if scoreless else _digest_role_roi(role_roi_ledger, current_gen_id),
         "findings_summary": findings_summary or {},
     }
+
+    if scoreless:
+        evidence = load_scoreless_evidence(run_dir, current_gen_id)
+        retained_ids = {row.get("id") for row in evidence if row.get("id")}
+        graph_edges = []
+        raw_edges = (findings_summary or {}).get("advisory_graph_edges")
+        for edge in (raw_edges if isinstance(raw_edges, list) else [])[:100]:
+            if not isinstance(edge, dict) or not all(
+                edge.get(key) in retained_ids for key in ("src_finding_id", "dst_finding_id")
+            ):
+                continue
+            graph_edges.append(
+                {
+                    key: value[:1200] if isinstance(value, str) else _sanitize_value(value)
+                    for key in (
+                        "edge_id",
+                        "src_finding_id",
+                        "dst_finding_id",
+                        "edge_type",
+                        "confidence",
+                        "created_by",
+                        "rationale",
+                    )
+                    if (value := edge.get(key)) is not None
+                }
+            )
+        shared_core.update(
+            {
+                "research_loop_mode": "scoreless",
+                "evidence_status": "not_scored",
+                "scoreless_evidence": evidence,
+                "advisory_graph_edges": graph_edges,
+                "graph_evidence_scope": "advisory_edges_between_retained_findings",
+                "research_memory_scope": "advisory_generation_filtered_ledgers_not_frozen_evidence",
+                "validation_candidates_meta": {"status": "not_applicable"},
+                "findings_summary": {
+                    key: value
+                    for key, value in (findings_summary or {}).items()
+                    if key not in {"scoreless_evidence", "advisory_graph_edges"}
+                },
+            }
+        )
 
     # stable id for caching / cross-PI consistency check
     blob = json.dumps(shared_core, sort_keys=True, default=str).encode("utf-8")
@@ -2163,6 +2233,19 @@ def build_evidence_pack(
 ) -> EvidencePack:
     """Assemble the complete evidence pack."""
     run_dir = Path(run_dir)
+    scoreless = (findings_summary or {}).get("research_loop_mode") == "scoreless"
+    canonical_sources = (
+        ["gen_*/scoreless_evidence.json", "research_memory/*"]
+        if scoreless
+        else [
+            "frontier/frontier_manifest.json",
+            "shared_store.db",
+            "research_memory/*",
+            "gems/gems_state.json",
+            "shared_findings/*",
+            "results/*",
+        ]
+    )
 
     # Load all ledgers
     claim_ledger = ClaimLedger(run_dir)
@@ -2193,17 +2276,13 @@ def build_evidence_pack(
         stage="pi_evidence_pack_shared_core",
         generation_id=current_gen_id,
         actor="research_loop:pi_panel",
-        canonical_sources=[
-            "frontier/frontier_manifest.json",
-            "shared_store.db",
-            "research_memory/*",
-            "gems/gems_state.json",
-            "shared_findings/*",
-            "results/*",
-        ],
+        canonical_sources=canonical_sources,
         runtime_fact_source=False,
         notes=(
-            "PI evidence packs are regenerated from canonical frontier, findings, "
+            "Scoreless evidence is read from frozen generation manifests; research-memory "
+            "ledgers and graph edges remain advisory. Retention does not establish quality."
+            if scoreless
+            else "PI evidence packs are regenerated from canonical frontier, findings, "
             "Gems, and research-memory state. Persisted packs are audit snapshots, "
             "not current fact owners."
         ),
@@ -2211,7 +2290,7 @@ def build_evidence_pack(
 
     # Build cards from existing DB. In Phase >0, card_builder may also pull
     # from a dedicated cards file; for now we rebuild on demand.
-    all_cards = build_cards_from_db(run_dir, max_gen=current_gen_id)
+    all_cards = [] if scoreless else build_cards_from_db(run_dir, max_gen=current_gen_id)
 
     private_packs: dict[str, list[dict[str, Any]]] = {}
     for role in pi_roles:
@@ -2230,8 +2309,12 @@ def build_evidence_pack(
             "shared_core_id": shared_core["shared_core_id"],
             "n_cards_total": len(all_cards),
             "private_pack_sizes": {k: len(v) for k, v in private_packs.items()},
-            "negative_evidence_ratio_global": negative_evidence_ratio(all_cards),
-            "validation_candidate_ids": sorted(
+            "negative_evidence_ratio_global": None
+            if scoreless
+            else negative_evidence_ratio(all_cards),
+            "validation_candidate_ids": []
+            if scoreless
+            else sorted(
                 _validation_candidate_aliases_from_manifest(
                     run_dir,
                     current_gen_id=current_gen_id,
@@ -2253,14 +2336,7 @@ def build_evidence_pack(
         stage="pi_evidence_pack",
         generation_id=current_gen_id,
         actor="research_loop:pi_panel",
-        canonical_sources=[
-            "frontier/frontier_manifest.json",
-            "shared_store.db",
-            "research_memory/*",
-            "gems/gems_state.json",
-            "shared_findings/*",
-            "results/*",
-        ],
+        canonical_sources=canonical_sources,
         runtime_fact_source=False,
     )
     # R3#6 fix: sanitize NaN/Inf out of every dict the templates will see.

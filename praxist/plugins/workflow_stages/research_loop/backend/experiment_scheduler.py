@@ -236,7 +236,7 @@ class ExperimentSchedulerService:
         self._active: dict[str, _ActiveJob] = {}
         self._frozen_generations: set[int] = set()
         self._assessment_generations: set[int] = set()
-        self._generation_deadlines: dict[int, float] = {}
+        self._generation_deadlines: dict[int, float | None] = {}
         self._generation_cohort_sizes: dict[int, int] = {}
         self._generation_peer_ids: dict[int, tuple[str, ...]] = {}
         self._generation_mature_targets: dict[int, int] = {}
@@ -1184,10 +1184,19 @@ class ExperimentSchedulerService:
         self,
         generation_id: int,
         *,
-        deadline: float,
+        deadline: float | None,
         cohort_size: int = 0,
         peer_ids: Sequence[str] | None = None,
     ) -> None:
+        """Open admission until an optional wall-clock deadline or explicit close.
+
+        Args:
+            generation_id: Generation whose admission should open.
+            deadline: Absolute Unix timestamp, or None for no time cap.
+            cohort_size: Number of peers participating in the generation.
+            peer_ids: Explicit identities eligible for generation supply.
+        """
+        deadline = None if deadline is None else float(deadline)
         generation_peer_ids = tuple(
             peer_id
             for peer_id in dict.fromkeys(str(value) for value in (peer_ids or ()))
@@ -1199,7 +1208,7 @@ class ExperimentSchedulerService:
                 {
                     "event": "generation_open",
                     "generation_id": generation_id,
-                    "deadline": float(deadline),
+                    "deadline": deadline,
                     "cohort_size": max(0, int(cohort_size)),
                     "peer_ids": list(generation_peer_ids),
                     "assessment_continues": assessment_continues,
@@ -1218,7 +1227,7 @@ class ExperimentSchedulerService:
             self._generation_mature_targets.clear()
             self._generation_cohort_sizes.clear()
             self._generation_peer_ids.clear()
-            self._generation_deadlines[generation_id] = float(deadline)
+            self._generation_deadlines[generation_id] = deadline
             self._generation_cohort_sizes[generation_id] = max(0, int(cohort_size))
             if generation_peer_ids:
                 self._generation_peer_ids[generation_id] = generation_peer_ids
@@ -1703,10 +1712,11 @@ class ExperimentSchedulerService:
             )
             claim_supply = getattr(self.allocator, "claim_supply", None)
             for peer_id, (generation_id, _registered_at) in candidates:
+                deadline = self._generation_deadlines.get(generation_id, 0.0)
                 if (
                     generation_id in self._frozen_generations
                     or self._generation_signal_exists(generation_id)
-                    or self._generation_deadlines.get(generation_id, 0.0) <= now
+                    or (deadline is not None and deadline <= now)
                 ):
                     self._idle_supply_waiters.pop(peer_id, None)
                     continue
@@ -3013,7 +3023,10 @@ class ExperimentSchedulerService:
             event_name = str(event.get("event", ""))
             if event_name == "generation_open":
                 generation_id = int(event.get("generation_id", 0) or 0)
-                self._generation_deadlines[generation_id] = float(event.get("deadline", 0.0) or 0.0)
+                deadline = event.get("deadline", 0.0)
+                self._generation_deadlines[generation_id] = (
+                    None if deadline is None else float(deadline or 0.0)
+                )
                 self._generation_cohort_sizes[generation_id] = max(
                     0, int(event.get("cohort_size", 0) or 0)
                 )

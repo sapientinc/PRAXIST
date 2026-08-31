@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -72,9 +73,37 @@ def mcp_configuration(
     python_executable: str | None = None,
     allowed_tools: Iterable[str] | None = None,
     denied_tools: Iterable[str] | None = None,
+    tool_execution_timeout_seconds: object | None = None,
+    isolated_python: bool = False,
 ) -> McpConfiguration:
-    """Translate selected tool servers to thread-scoped app-server config."""
+    """Translate selected tool servers to thread-scoped app-server config.
 
+    Args:
+        tool_servers: Resolved bundled or task-installed server descriptors.
+        env: Scoped operational environment for each server.
+        credential_env: Credentials selected only for declared server scopes.
+        python_executable: Trusted interpreter containing installed tool packages.
+        allowed_tools: Exact tool allowlist, or ``None`` for no allowlist.
+        denied_tools: Tool denials that take precedence over the allowlist.
+        tool_execution_timeout_seconds: Optional native MCP execution timeout.
+            ``None`` omits the override, preserving the SDK's native default;
+            it does not assert that native MCP calls have no timeout.
+        isolated_python: Ignore analyst cwd, Python environment paths, and user
+            site packages during Python startup. Tool packages must be installed
+            in the trusted interpreter; its site-packages and editable source
+            roots must be outside analyst-writable mounts.
+
+    Returns:
+        Server configuration and diagnostics for omitted descriptors.
+    """
+
+    if tool_execution_timeout_seconds is not None and (
+        isinstance(tool_execution_timeout_seconds, bool)
+        or not isinstance(tool_execution_timeout_seconds, (int, float))
+        or not math.isfinite(tool_execution_timeout_seconds)
+        or tool_execution_timeout_seconds <= 0
+    ):
+        raise ValueError("tool_execution_timeout_seconds must be a positive finite number")
     python_executable = python_executable or sys.executable
     restrict_to_allowed = allowed_tools is not None
     allowed = set(allowed_tools or ())
@@ -111,7 +140,9 @@ def mcp_configuration(
         if restrict_to_allowed and not enabled_tools:
             continue
         key = mcp_server_key(server_name)
-        args = ["-m", MCP_STDIO_MODULE, factory]
+        # MCP subprocesses do not inherit the analyst shell sandbox. Prevent
+        # writable cwd/PYTHONPATH modules from running before the trusted server.
+        args = [*(["-I"] if isolated_python else []), "-m", MCP_STDIO_MODULE, factory]
         server_config: dict[str, object] = {
             "command": python_executable,
             "args": args,
@@ -122,6 +153,8 @@ def mcp_configuration(
             "required": server_name in REQUIRED_MCP_SERVERS,
             "startup_timeout_sec": 30,
         }
+        if tool_execution_timeout_seconds is not None:
+            server_config["tool_timeout_sec"] = tool_execution_timeout_seconds
         if enabled_tools:
             server_config["enabled_tools"] = enabled_tools
         server_env = dict(env or {})

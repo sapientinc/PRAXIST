@@ -68,9 +68,21 @@ _RESEARCH_METADATA_KEYS = (
 )
 
 
-def _fallback_research_metadata(role: str = "") -> dict[str, str]:
+def _fallback_research_metadata(
+    role: str = "", *, research_loop_mode: str = "metric"
+) -> dict[str, str]:
     """Conservative preserve/repair/pivot labels for deterministic fallback agendas."""
 
+    if research_loop_mode == "scoreless":
+        return {
+            "bottleneck_target": "source_or_explanation_gap",
+            "evidence_stage": "open_question",
+            "tradeoff_class": "incomplete_evidence",
+            "primary_tradeoff": "evidence_vs_research_effort",
+            "next_step_intent": "preserve_and_validate",
+            "parent_candidate": "",
+            "parent_usage": "",
+        }
     norm = str(role or "").strip().lower().replace("-", "_").replace(" ", "_")
     if norm == "falsifier":
         return {
@@ -123,10 +135,12 @@ def _fallback_research_metadata(role: str = "") -> dict[str, str]:
     }
 
 
-def _research_metadata_from_source(source: Any, role: str = "") -> dict[str, str]:
+def _research_metadata_from_source(
+    source: Any, role: str = "", *, research_loop_mode: str = "metric"
+) -> dict[str, str]:
     """Return fallback metadata with any source-provided labels preserved."""
 
-    metadata = _fallback_research_metadata(role)
+    metadata = _fallback_research_metadata(role, research_loop_mode=research_loop_mode)
     if not isinstance(source, dict):
         return metadata
 
@@ -384,6 +398,8 @@ def _claim_minimal_test(
     role: str,
     claim: dict[str, Any],
     pi_memos: dict[str, dict[str, Any]],
+    *,
+    research_loop_mode: str = "metric",
 ) -> str:
     claim_id = str(claim.get("id") or "")
     memo = pi_memos.get(role, {}) if isinstance(pi_memos.get(role), dict) else {}
@@ -398,6 +414,11 @@ def _claim_minimal_test(
     for experiment in memo.get("proposed_experiments") or []:
         if isinstance(experiment, dict) and experiment.get("description"):
             return _clip(experiment.get("description"), limit=520)
+    if research_loop_mode == "scoreless":
+        return (
+            f"Inspect the sources and alternative explanations for {claim_id or 'this open inquiry'}; "
+            "record what remains uncertain and which next inquiry could resolve it."
+        )
     return (
         f"Run the smallest task-valid control or replication that can decide "
         f"{claim_id or 'this PI claim'} under matched resources, then publish "
@@ -436,6 +457,7 @@ def _minority_ideas(
     cross_reviews: dict[str, dict[str, Any]],
     *,
     next_gen_id: int,
+    research_loop_mode: str = "metric",
 ) -> list[dict[str, Any]]:
     ideas: list[dict[str, Any]] = []
     for role, review in cross_reviews.items():
@@ -457,11 +479,15 @@ def _minority_ideas(
                     idea.get("protected_budget_recommendation"), limit=180, fallback="1 peer"
                 ),
                 "success_condition": (
-                    "Produce a task-valid result or falsifier finding that changes the next "
+                    "Preserve source-backed observations, contradictions, and useful open questions."
+                    if research_loop_mode == "scoreless"
+                    else "Produce a task-valid result or falsifier finding that changes the next "
                     "frontier or claim boundary."
                 ),
                 "stop_condition": (
-                    "Retire after one generation if no measurable signal is produced."
+                    "Record unresolved limitations when the allotted inquiry budget is exhausted."
+                    if research_loop_mode == "scoreless"
+                    else "Retire after one generation if no measurable signal is produced."
                 ),
             }
         )
@@ -482,10 +508,16 @@ def _minority_ideas(
                     "rationale": _clip(experiment.get("description"), limit=360),
                     "protected_budget": "1 peer if primary contracts leave capacity",
                     "success_condition": (
-                        "Advance to the next task-valid evaluation tier or produce a clear "
+                        "Investigate the proposed inquiry and retain useful partial evidence."
+                        if research_loop_mode == "scoreless"
+                        else "Advance to the next task-valid evaluation tier or produce a clear "
                         "negative finding."
                     ),
-                    "stop_condition": "Retire after one generation without a measurable signal.",
+                    "stop_condition": (
+                        "Record unresolved limitations when the allotted inquiry budget is exhausted."
+                        if research_loop_mode == "scoreless"
+                        else "Retire after one generation without a measurable signal."
+                    ),
                 }
             )
             break
@@ -494,6 +526,8 @@ def _minority_ideas(
 
 def _claim_boundary_updates_from_round2(
     cross_reviews: dict[str, dict[str, Any]],
+    *,
+    research_loop_mode: str = "metric",
 ) -> list[dict[str, Any]]:
     updates: list[dict[str, Any]] = []
     for role, review in cross_reviews.items():
@@ -525,12 +559,217 @@ def _claim_boundary_updates_from_round2(
                         f" by {role}; triggered by: {triggered}"
                     ),
                     "required_validation_before_upgrade": [
-                        f"Run the concrete resolving experiment implied by {triggered}; "
+                        f"Investigate {triggered}; revisit the claim only when cited evidence "
+                        "addresses the stated objection."
+                        if research_loop_mode == "scoreless"
+                        else f"Run the concrete resolving experiment implied by {triggered}; "
                         "upgrade only if the measured result removes the stated objection."
                     ],
                 }
             )
     return updates
+
+
+def _build_scoreless_fallback_agenda(
+    *,
+    pi_memos: dict[str, dict[str, Any]],
+    cross_reviews: dict[str, dict[str, Any]],
+    next_gen_id: int,
+    completed_gen_id: int,
+    panel_mode: str,
+    shared_core_id: str,
+    peer_budget: int,
+    parse_error: str,
+    peer_role_rotation: tuple[str, ...],
+) -> dict[str, Any]:
+    """Preserve memo evidence and allocate inquiries without inventing score gates."""
+    claims = _iter_memo_claims(pi_memos)
+    metadata = _fallback_research_metadata(research_loop_mode="scoreless")
+    boundary_updates = _claim_boundary_updates_from_round2(
+        cross_reviews, research_loop_mode="scoreless"
+    )
+    minority_ideas = _minority_ideas(
+        pi_memos, cross_reviews, next_gen_id=next_gen_id, research_loop_mode="scoreless"
+    )
+    hypotheses = []
+    inquiries = (
+        "Which available sources support the provisional explanation?",
+        "Which contradictory observation or alternative explanation needs investigation?",
+        "Which source limitation should the next inquiry resolve?",
+    )
+    for index in range(max(3, min(5, len(claims)))):
+        role, claim = claims[index % len(claims)] if claims else ("panel", {})
+        statement = str(claim.get("statement") or claim.get("id") or "")
+        is_followup = index >= len(claims)
+        hypotheses.append(
+            {
+                "id": f"H_g{next_gen_id}_{index + 1:02d}",
+                "source_claim_id": str(claim.get("id") or ""),
+                "claim": (
+                    f"Open inquiry: {inquiries[index % len(inquiries)]} {statement}".strip()
+                    if is_followup
+                    else statement
+                ),
+                **_research_metadata_from_source(claim, role, research_loop_mode="scoreless"),
+                "source_findings": _claim_supports(role, claim) if claim else [],
+                "minimal_test": _claim_minimal_test(
+                    role, claim, pi_memos, research_loop_mode="scoreless"
+                ),
+                "kill_condition": "Bound or reject the explanation when cited evidence contradicts it.",
+                "promote_condition": "Revisit the provisional claim when cited evidence resolves its limitations.",
+            }
+        )
+        # Peer prompt slicing retains each hypothesis but may omit top-level
+        # revisions keyed by the original memo claim rather than its new id.
+        hypothesis = hypotheses[-1]
+        for field in ("boundary", "confidence"):
+            if field in claim:
+                hypothesis[field] = claim[field]
+        revisions = [
+            update
+            for update in boundary_updates
+            if update["claim_id"] == hypothesis["source_claim_id"]
+        ]
+        if revisions:
+            hypothesis["boundary"] = revisions[-1]["new_language"]
+            hypothesis["claim_boundary_updates"] = revisions
+        review = cross_reviews.get(role)
+        if isinstance(review, dict):
+            for revision in review.get("own_revisions") or []:
+                if (
+                    isinstance(revision, dict)
+                    and revision.get("claim_id") == hypothesis["source_claim_id"]
+                    and "confidence_new" in revision
+                ):
+                    hypothesis["confidence"] = revision["confidence_new"]
+    first = hypotheses[0]
+    objection = _first_objection(pi_memos)
+    resolving_inquiry = (
+        str(
+            objection[1].get("resolving_experiment")
+            or objection[1].get("objection")
+            or first["minimal_test"]
+        )
+        if objection
+        else first["minimal_test"]
+    )
+    rotation = peer_role_rotation or _PEER_ROLE_ROTATION
+    contracts = {}
+    for index in range(peer_budget):
+        role = rotation[index % len(rotation)]
+        target = hypotheses[index % len(hypotheses)]
+        contracts[f"gen{next_gen_id}_peer{index}"] = {
+            "role": role,
+            "target_hypothesis": target["id"],
+            **metadata,
+            "source_findings": target["source_findings"],
+            "next_inquiry": resolving_inquiry if role == "falsifier" else target["minimal_test"],
+            "forbidden_actions": [
+                "Do not invent sources or present unresolved claims as established facts."
+            ],
+            "success_signal": "Publish cited observations, contradictions, or useful partial findings with uncertainty.",
+            "coverage_check": "Identify which open question this inquiry addresses and any remaining source gaps.",
+            "source": (
+                "DISSENT_TO_EXPERIMENT"
+                if role == "falsifier"
+                else "minority_high_upside"
+                if role == "anti_mainline" and minority_ideas
+                else "consensus_actions"
+            ),
+        }
+    summaries = {
+        f"{role}_summary": _memo_summary(role, memo)
+        for role, memo in pi_memos.items()
+        if isinstance(memo, dict) and not memo.get("_pi_unavailable")
+    }
+    summaries["chair_summary"] = (
+        "Chair output could not be parsed. Preserve provisional memo claims and dissent; "
+        "the assigned inquiries do not imply measured performance or established correctness."
+    )
+    return {
+        "agenda_version": "2.0",
+        "research_loop_mode": "scoreless",
+        "evidence_status": "not_scored",
+        "generation": next_gen_id,
+        "synthesized_from_gen": completed_gen_id,
+        "synthesized_at": datetime.now(UTC).isoformat(),
+        "panel_mode": panel_mode,
+        "shared_core_id": shared_core_id,
+        "panel_summary": summaries,
+        "mainline_observation": {
+            "provisional_explanations": [h["claim"] for h in hypotheses],
+            "main_risk": resolving_inquiry,
+        },
+        "cross_peer_hypotheses": hypotheses,
+        "bridge_hypothesis": {
+            "id": f"B_g{next_gen_id}_01",
+            **metadata,
+            "source_findings": first["source_findings"] + hypotheses[1]["source_findings"],
+            "experiment_matrix": [first["minimal_test"], hypotheses[1]["minimal_test"]],
+            "expected_pareto_movement": "Clarify agreement or conflict between provisional explanations.",
+            "coverage_check": "Record shared sources and independent evidence before combining explanations.",
+        },
+        "anti_mainline_contract": {
+            **metadata,
+            "target_axes": [
+                "alternative explanations",
+                "contradictory evidence",
+                "source limitations",
+            ],
+            "forbidden_mechanisms": [
+                "Treating consensus as correctness",
+                "Inventing sources",
+                "Discarding unresolved useful evidence",
+            ],
+            "seed_findings": [entry["finding_id"] for entry in first["source_findings"]],
+            "success_condition": "Investigate an alternative explanation and retain its supporting or conflicting evidence.",
+        },
+        "falsification_contract": {
+            "target_hypothesis": first["id"],
+            **metadata,
+            "required_controls": [resolving_inquiry],
+            "decision_rule": "State whether the cited evidence supports, contradicts, or leaves the claim unresolved.",
+        },
+        "consensus_actions": [
+            {
+                "action_id": f"A_g{next_gen_id}_01",
+                "claim_or_hypothesis": first["id"],
+                **metadata,
+                "assigned_role": rotation[0],
+                "minimal_experiment": first["minimal_test"],
+                "supports": [entry["finding_id"] for entry in first["source_findings"]],
+                "promote_condition": first["promote_condition"],
+                "kill_condition": first["kill_condition"],
+            }
+        ],
+        "DISSENT_TO_EXPERIMENT": [
+            {
+                "dissent_id": f"D_g{next_gen_id}_01",
+                "disputed_claim": str(objection[1].get("target_claim") or first["id"]),
+                "resolving_experiment": resolving_inquiry,
+                "assigned_peer_role": "falsifier",
+                **metadata,
+                "decision_rule": "Preserve the objection until cited evidence resolves it; record an unresolved outcome when necessary.",
+            }
+        ]
+        if objection
+        else [],
+        "minority_high_upside": minority_ideas,
+        "claim_boundary_updates": boundary_updates,
+        "peer_contracts": contracts,
+        "success_metrics": {
+            "required": [
+                "cite_retained_sources_and_label_uncertainty",
+                "preserve_useful_partial_findings",
+                "record_contradictions_and_next_inquiries",
+            ]
+        },
+        "dissent_ledger_ref": f"research_memory/dissent_ledger_gen{next_gen_id}.yaml",
+        "fallback_metadata": {
+            "reason": "chair_yaml_parse_failed",
+            "parse_error": _clip(parse_error, limit=500),
+        },
+    }
 
 
 def _build_deterministic_fallback_agenda(
@@ -544,6 +783,7 @@ def _build_deterministic_fallback_agenda(
     peer_budget: int,
     parse_error: str,
     peer_role_rotation: tuple[str, ...] = (),
+    research_loop_mode: str = "metric",
 ) -> dict[str, Any]:
     """Construct a conservative agenda when Chair emits non-parseable text.
 
@@ -553,6 +793,18 @@ def _build_deterministic_fallback_agenda(
     known agenda IDs so the validator can still audit the generation.
     """
 
+    if research_loop_mode == "scoreless":
+        return _build_scoreless_fallback_agenda(
+            pi_memos=pi_memos,
+            cross_reviews=cross_reviews,
+            next_gen_id=next_gen_id,
+            completed_gen_id=completed_gen_id,
+            panel_mode=panel_mode,
+            shared_core_id=shared_core_id,
+            peer_budget=peer_budget,
+            parse_error=parse_error,
+            peer_role_rotation=peer_role_rotation,
+        )
     claims: list[tuple[str, dict[str, Any]]] = _iter_memo_claims(pi_memos)
     if not claims:
         claims = [
@@ -880,7 +1132,7 @@ class ChairArbiter:
         run_dir: Path,
         workspace: Path,
         model: str,
-        max_runtime_minutes: int = 8,
+        max_runtime_minutes: int | None = 8,
         peer_budget: int = 5,
         mcp_servers: dict[str, Any] | None = None,
         stop_check_fn: Callable[[], bool] | None = None,
@@ -986,6 +1238,7 @@ class ChairArbiter:
         role_skill = self.skill()
         prompt = tpl.render(
             role_skill=role_skill,
+            max_runtime_minutes=self.max_runtime_minutes,
             shared_core_digest=shared_core_digest,
             pi_memos=pi_memos,
             cross_reviews=cross_reviews or {},
@@ -1058,6 +1311,7 @@ class ChairArbiter:
             allowed_tools: list[str] = []
             agent = BaseAgent(
                 name="chair_arbiter",
+                execution_role="pi",
                 allowed_tools=allowed_tools,
                 workspace=self.workspace,
                 mcp_servers={},  # ← hard-disable MCP; allowed_tools alone is not enough
@@ -1069,7 +1323,9 @@ class ChairArbiter:
             )
             result = await asyncio.wait_for(
                 agent.execute(task=prompt),
-                timeout=self.max_runtime_minutes * 60,
+                timeout=(
+                    self.max_runtime_minutes * 60 if self.max_runtime_minutes is not None else None
+                ),
             )
             if not result.success:
                 return ChairResult(
@@ -1093,6 +1349,7 @@ class ChairArbiter:
                     peer_budget=self.peer_budget,
                     parse_error=parse_result.error or "unknown parse failure",
                     peer_role_rotation=self.peer_role_rotation,
+                    research_loop_mode=shared_core_digest.get("research_loop_mode", "metric"),
                 )
                 logger.warning(
                     "ChairArbiter: chair output was not parseable as agenda YAML; "
@@ -1118,6 +1375,7 @@ class ChairArbiter:
                     peer_budget=self.peer_budget,
                     parse_error="chair output not a yaml mapping",
                     peer_role_rotation=self.peer_role_rotation,
+                    research_loop_mode=shared_core_digest.get("research_loop_mode", "metric"),
                 )
                 logger.warning(
                     "ChairArbiter: chair output parsed as non-mapping; "

@@ -8,6 +8,7 @@ from typing import Any
 from praxist.plugins.workflow_stages.research_loop.backend.orchestrator_status import (
     OrchestratorStatusWriter,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,8 @@ def start_sidecars(loop: Any, *, resume_plan: Any = None) -> None:
                 "primary_metric",
                 None,
             )
+            if is_scoreless(getattr(loop, "task_spec", None)):
+                primary_metric = None
             result_options = result_artifact_options_from_task_spec(
                 getattr(loop, "task_spec", None)
             )

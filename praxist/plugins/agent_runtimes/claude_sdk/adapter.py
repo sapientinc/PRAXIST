@@ -16,15 +16,21 @@ import shlex
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import Future as ConcurrentFuture
 from concurrent.futures import TimeoutError as ConcurrentTimeoutError
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from praxist.core.protocol import AgentEvent, AgentRunRequest, AgentRunResult, ToolCallRecord
+from praxist.core.protocol import (
+    AgentEvent,
+    AgentRunRequest,
+    AgentRunResult,
+    JSONValue,
+    ToolCallRecord,
+)
 from praxist.core.redaction import redact_json, redact_text
 from praxist.core.runtimes import (
     AgentRuntimeExecutionContext,
@@ -34,6 +40,7 @@ from praxist.core.runtimes import (
     prompt_text_for_request,
     system_prompt_text_for_request,
 )
+from praxist.plugins.agent_runtimes.claude_sdk._mcp import mcp_execution_options
 from praxist.plugins.agent_runtimes.claude_sdk.delete_guard import (
     _append_guard_warning,
     prepare_delete_guard_env,
@@ -388,6 +395,7 @@ class LegacyClaudeRuntimeOptions:
     env: dict[str, str] | None = None
     require_no_shell_runtime: bool = False
     runtime_timeout_seconds: int | None = None
+    tool_execution_timeout_seconds: float | None = None
     liveness: ClaudeSessionLiveness | None = None
     model_provider_ref: str = ""
     reasoning_effort: str = "max"
@@ -406,6 +414,8 @@ def _claude_reasoning_options(options: LegacyClaudeRuntimeOptions) -> dict[str, 
         return {}
     if policy == "off":
         return {"thinking": {"type": "disabled"}}
+    if policy == "xhigh":
+        policy = "max"
     provider = options.model_provider_ref.rsplit(":", 1)[-1].removesuffix("_alias").lower()
     if provider == "deepseek":
         # ClaudeAgentOptions requires budget_tokens for enabled thinking;
@@ -455,6 +465,22 @@ class ClaudeSdkAgentRuntime:
             )
 
         runtime_options = request.runtime_options or {}
+        if runtime_options.get("require_task_sandbox_policy") or runtime_options.get(
+            "require_task_tool_policy"
+        ):
+            return _agent_run_result_from_legacy(
+                request,
+                LegacyAgentResult(
+                    success=False,
+                    output={},
+                    duration=0.0,
+                    iteration_count=0,
+                    error="claude_sdk cannot enforce a task-wide sandbox or tool policy; select a runtime with sandbox and tool enforcement",
+                    terminal_status="failed",
+                ),
+            )
+        # Preserve raw timeout values for mcp_execution_options to validate;
+        # coercion here would accidentally accept booleans or numeric strings.
         legacy_result = await self._execute_legacy_isolated(
             prompt_text_for_request(request),
             LegacyClaudeRuntimeOptions(
@@ -474,6 +500,9 @@ class ClaudeSdkAgentRuntime:
                 env=dict(context.env),
                 require_no_shell_runtime=bool(runtime_options.get("require_no_shell_runtime")),
                 runtime_timeout_seconds=request.timeout_seconds or None,
+                tool_execution_timeout_seconds=cast(
+                    float | None, runtime_options.get("tool_execution_timeout_seconds")
+                ),
             ),
         )
         return _agent_run_result_from_legacy(request, legacy_result)
@@ -752,7 +781,9 @@ class ClaudeSdkAgentRuntime:
             if not callable(close):
                 return
             try:
-                await asyncio.wait_for(close(), timeout=_SDK_QUERY_CLOSE_SECONDS)
+                await asyncio.wait_for(
+                    cast(Awaitable[Any], close()), timeout=_SDK_QUERY_CLOSE_SECONDS
+                )
             except TimeoutError:
                 logger.warning(
                     "Agent %s: Claude SDK query iterator did not close within %.1fs.",
@@ -783,6 +814,9 @@ class ClaudeSdkAgentRuntime:
                     workspace=options.workspace,
                     agent_name=options.name,
                 )
+            mcp_servers, runtime_env = mcp_execution_options(
+                options.mcp_servers, runtime_env, options.tool_execution_timeout_seconds
+            )
             reasoning_options = _claude_reasoning_options(options)
             if (
                 effective_reasoning_effort(
@@ -811,6 +845,7 @@ class ClaudeSdkAgentRuntime:
                             ),
                         }
                     }
+                tool_input: dict[str, Any] = {}
                 try:
                     tool_input = _hook_value(hook_input, "tool_input") or {}
                     if not isinstance(tool_input, dict):
@@ -947,7 +982,7 @@ class ClaudeSdkAgentRuntime:
                 "permission_mode": options.permission_mode,
                 "cwd": str(options.workspace),
                 "model": options.model,
-                "mcp_servers": options.mcp_servers,
+                "mcp_servers": mcp_servers,
                 "setting_sources": claude_setting_sources_from_env(),
                 "betas": ["context-1m-2025-08-07"],
                 "env": runtime_env,
@@ -1415,7 +1450,7 @@ def _legacy_result_error(output: dict[str, Any]) -> str | None:
 def _legacy_output_has_only_failed_background_tasks(output: dict[str, Any]) -> bool:
     if not _legacy_output_has_only_terminal_background_tasks(output):
         return False
-    tasks = output.get("background_tasks")
+    tasks = cast(list[Any], output["background_tasks"])
     statuses = [
         str(task.get("status") or "").strip().lower() for task in tasks if isinstance(task, dict)
     ]
@@ -1657,7 +1692,7 @@ class _TranscriptRuntime:
     def execute_sync(self, request: AgentRunRequest) -> AgentRunResult:
         agent_run_id = request.request_id
         credential_refs = [request.credential_ref] if request.credential_ref else []
-        legacy_output = {
+        legacy_output: dict[str, JSONValue] = {
             "text_outputs": [f"deterministic {self.transcript_kind} response"],
             "tool_uses": [],
             "runtime_ref": self.runtime_ref,
@@ -1720,7 +1755,7 @@ class _TranscriptRuntime:
         agent_run_id: str,
         event_index: int,
         event_type: str,
-        payload: dict[str, object],
+        payload: dict[str, JSONValue],
         credential_refs: list[Any],
     ) -> AgentEvent:
         safe_request_id = "".join(

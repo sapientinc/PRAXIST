@@ -157,7 +157,11 @@ class CachePolicy:
 
 @dataclass(frozen=True)
 class AgentRunRequest:
-    """Serializable request passed from workflow stages to an AgentRuntime adapter."""
+    """Serializable request passed from workflow stages to an AgentRuntime adapter.
+
+    ``timeout_seconds=None`` carries no per-request time limit. A controller
+    may still impose a separately configured execution deadline.
+    """
 
     request_id: str
     run_id: str
@@ -176,7 +180,7 @@ class AgentRunRequest:
     credential_mode: str
     budget_grant_id: str | None
     artifact_scope: str
-    timeout_seconds: int
+    timeout_seconds: int | None
     cache_policy: CachePolicy
     runtime_options: dict[str, JSONValue] = field(default_factory=dict)
     role_skill_sha256: str | None = None
@@ -289,7 +293,7 @@ class BudgetRequest:
     requester_id: str
     experiment_id: str
     model_profile_ref: str | None
-    requested: dict[str, float]
+    requested: dict[str, float | None]
     expected_value: dict[str, JSONValue]
     evidence_refs: list[str]
     cheaper_alternatives: list[str]
@@ -298,10 +302,10 @@ class BudgetRequest:
 
 @dataclass(frozen=True)
 class BudgetGrant:
-    """Approved budget envelope that execution guards can enforce and meter."""
+    """Approved budget envelope; None is uncapped, never an unknown usage value."""
 
     grant_id: str
-    approved: dict[str, float]
+    approved: dict[str, float | None]
     conditions: list[str]
     expires_at_generation: int | None
 

@@ -7,7 +7,13 @@ In Round 1, you wrote your independent memo. The other PIs ({{ peer_count }}) wr
 - You may revise your own claims' confidence + boundary; you may NOT introduce a brand-new claim.
 - You may NOT vote on scientific truth — your job is to surface the strongest agreement, the strongest objection, and the missing experiments.
 
-## Your Round 1 memo (verbatim, for reference)
+{% if research_loop_mode|default('metric') == 'scoreless' %}
+This is scoreless research. Review the memos as qualitative evidence; confidence
+is a judgment about a claim, not measured performance. Keep useful unresolved
+findings and source limitations visible. Missing inquiries may be source checks,
+calculations, comparisons, or falsifiers; do not invent evaluation requirements.
+
+{% endif %}## Your Round 1 memo (verbatim, for reference)
 
 ```yaml
 {{ own_memo | tojson(indent=2) }}
@@ -93,8 +99,12 @@ own_revisions:
     confidence_new: <float>
     boundary_old: "<original>"
     boundary_new: "<bounded>"
-    triggered_by: "PI #? objection on missing baseline" | "self-correction"
+    triggered_by: "{{ "PI #? objection on missing source evidence" if research_loop_mode|default("metric") == "scoreless" else "PI #? objection on missing baseline" }}" | "self-correction"
 ```
 {% endif %}
 
-Begin. You have {{ "9 (high-stakes mode)" if role_name == "external_validity" else "6" }} minutes.
+{% if max_runtime_minutes is defined and max_runtime_minutes is none %}
+Begin. No role-specific runtime limit is configured.
+{% else %}
+Begin. You have {{ max_runtime_minutes|default("9 (high-stakes mode)" if role_name == "external_validity" else "6") }} minutes.
+{% endif %}

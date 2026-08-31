@@ -287,7 +287,11 @@ def audit_agenda(
     historical ``3 <= len <= 6`` which works for the bundled 5-peer cohort.
     """
     report = AuditReport(audit_id=audit_id)
-    metrics = {
+    shared_core = pack_dict.get("shared_core") or {}
+    scoreless = (
+        isinstance(shared_core, dict) and shared_core.get("research_loop_mode") == "scoreless"
+    )
+    metrics: dict[str, Any] = {
         "claims_checked": 0,
         "claims_with_source_id": 0,
         "high_stakes_claims": 0,
@@ -300,6 +304,9 @@ def audit_agenda(
         "private_kb_marked_as_hypothesis": 0,
         "negative_evidence_in_pack": 0,
     }
+    if scoreless:
+        metrics["high_stakes_with_challenge"] = None
+        metrics["private_card_challenge_check"] = "not_applicable"
 
     # --- Check 1: every consensus_action / hypothesis has source_id-equivalent
     for section_key in ("consensus_actions", "cross_peer_hypotheses"):
@@ -374,6 +381,8 @@ def audit_agenda(
     for term in OVERCLAIM_TERMS:
         if term in blob_all:
             metrics["high_stakes_claims"] += 1
+            if scoreless:
+                break
             # check whether at least one challenge card exists in pack
             challenge_count = sum(
                 1
@@ -419,10 +428,12 @@ def audit_agenda(
     metrics["negative_evidence_digest_referenced"] = bool(digest_referenced)
     evidence_denominator = len(all_cards) + digest_neg_count
     metrics["negative_evidence_ratio"] = (
-        neg_count / evidence_denominator if evidence_denominator else 0.0
+        None if scoreless else (neg_count / evidence_denominator if evidence_denominator else 0.0)
     )
+    if scoreless:
+        metrics["negative_evidence_ratio_status"] = "not_applicable"
     is_first_synthesis = completed_gen_id == 0
-    if evidence_denominator:
+    if evidence_denominator and not scoreless:
         ratio = neg_count / evidence_denominator
         # R5#6 fix: do NOT block on first synthesis (gen 0 → gen 1).
         # Peers discover negative evidence by running experiments; gen 0

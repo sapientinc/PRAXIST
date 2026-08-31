@@ -18,6 +18,7 @@ from typing import Any
 
 import yaml
 
+from praxist.core.storage import open_readonly_file, read_file_bytes
 from praxist.plugins.workflow_stages.research_loop.backend.artifact_semantics import (
     COMMITTED,
     DERIVED_VIEW,
@@ -75,6 +76,7 @@ _BOUNDARY_FINGERPRINT_IGNORED_KEYS = frozenset(
     }
 )
 _FINDING_SNAPSHOT_PREFIX = "canonical-finding:"
+_SCORELESS_SOURCE_SNAPSHOT_PREFIX = "scoreless-source-finding:"
 _FINDING_SNAPSHOT_MARKER = "canonical-finding-snapshot:v1"
 _FINDING_SNAPSHOT_PAYLOAD_PREFIX = "canonical-finding-payload:v1:"
 _RESULT_SNAPSHOT_ROOT_MARKER = "result-source-root:v1"
@@ -241,18 +243,25 @@ def _run_dir_from_findings_dir(findings_dir: Path) -> Path:
     return findings_dir
 
 
-def _load_json(path: Path) -> dict[str, Any] | None:
+def _load_json(
+    path: Path, *, source_content_hashes: dict[Path, str] | None = None
+) -> dict[str, Any] | None:
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        source_bytes = read_file_bytes(path)
+        data = json.loads(source_bytes)
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    if source_content_hashes is not None:
+        source_content_hashes[path] = hashlib.sha256(source_bytes).hexdigest()
+    return data
 
 
 def _load_yaml(path: Path) -> dict[str, Any] | None:
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+        data = yaml.safe_load(read_file_bytes(path).decode("utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -749,6 +758,8 @@ def _metric_name_from_axis(axis: Any) -> str:
 def result_artifact_options_from_task_spec(task_spec: Any) -> dict[str, Any]:
     """Return task-configured result materialization options."""
 
+    from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
+
     evaluation = getattr(task_spec, "evaluation", None)
     gems_cfg = getattr(task_spec, "gems", None)
     primary_metric = getattr(evaluation, "primary_metric", None)
@@ -787,9 +798,8 @@ def result_artifact_options_from_task_spec(task_spec: Any) -> dict[str, Any]:
         for metric in getattr(gems_cfg, field_name, None) or []:
             add_scoring_metric(metric)
     return {
-        "materialize_result_artifacts": bool(
-            getattr(gems_cfg, "result_artifact_materialization", True)
-        ),
+        "materialize_result_artifacts": not is_scoreless(task_spec)
+        and bool(getattr(gems_cfg, "result_artifact_materialization", True)),
         "result_artifact_default_lane": str(
             getattr(gems_cfg, "result_artifact_default_lane", "performance") or "performance"
         ),
@@ -830,6 +840,7 @@ def collect_loop_findings(
         local_mode=loop.local_mode,
         do_ingest=do_ingest,
         primary_metric=primary_metric,
+        task_spec=loop.task_spec,
         **boundary_options,
         **result_artifact_options_from_task_spec(loop.task_spec),
     )
@@ -1954,6 +1965,113 @@ def canonical_findings_from_snapshot(snapshot: dict[str, str]) -> list[dict[str,
     return findings
 
 
+def preserve_scoreless_finding_sources(
+    snapshot: dict[str, str], *, run_dir: Path, cutoff: datetime
+) -> dict[str, str]:
+    """Enrich a new cutoff snapshot with complete matching source JSON.
+
+    Args:
+        snapshot: Newly captured canonical rows and cutoff source identities.
+        run_dir: Run root containing the peer-authored source files.
+        cutoff: Publication deadline for the frozen source bytes.
+
+    Returns:
+        A snapshot with separate full source payloads when bytes match the
+        captured source digest. Canonical comparison fingerprints remain
+        unchanged. Unavailable sources keep their canonical row with explicit
+        provenance uncertainty. Recovered
+        checkpoints must be used directly, without invoking this function.
+    """
+    from praxist.core.redaction import redact_json
+    from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
+        read_bounded_file_under_root_no_follow,
+    )
+
+    enriched = dict(snapshot)
+    root = Path(run_dir)
+    for finding in canonical_findings_from_snapshot(snapshot):
+        original = dict(finding)
+        finding["source_payload_status"] = "canonical_row_only"
+        source = str(finding.get("source_filepath") or "").strip()
+        if source:
+            path = Path(source)
+            if not path.is_absolute():
+                path = root / path
+            try:
+                relative = str(path.relative_to(root))
+                size = path.lstat().st_size
+            except (ValueError, OSError):
+                relative = ""
+                size = -1
+            expected = _stable_content_part(snapshot.get(relative))
+            data = (
+                read_bounded_file_under_root_no_follow(path, root, max_bytes=size)
+                if size >= 0 and expected is not None
+                else None
+            )
+            published_at = (
+                _result_publication_mtime(path, run_dir=root) if data is not None else None
+            )
+            if (
+                data is not None
+                and expected == f"content:file:{hashlib.sha256(data).hexdigest()}"
+                and published_at is not None
+                and published_at <= cutoff.timestamp()
+                and _logical_result_identity(path, run_dir=root) == snapshot.get(relative)
+            ):
+                try:
+                    payload = json.loads(data)
+                except (ValueError, UnicodeError):
+                    payload = None
+                if isinstance(payload, dict):
+                    finding = {**payload, **original}
+                    for key in ("content", "title", "summary", "notes"):
+                        if key in payload:
+                            finding[key] = payload[key]
+                    finding["source_payload"] = payload
+                    finding["source_payload_sha256"] = hashlib.sha256(data).hexdigest()
+                    finding["source_payload_status"] = "frozen"
+            if finding.get("source_payload_status") != "frozen":
+                finding["source_payload_status"] = "source_unavailable_or_changed"
+        entry = _finding_snapshot_entry(finding)
+        if entry is not None:
+            source_ref = entry[0].replace(
+                _FINDING_SNAPSHOT_PREFIX, _SCORELESS_SOURCE_SNAPSHOT_PREFIX, 1
+            )
+            redacted, _ = redact_json(finding)
+            if isinstance(redacted, dict):
+                enriched[source_ref] = _finding_snapshot_payload(redacted)
+    return enriched
+
+
+def scoreless_findings_with_frozen_sources(
+    snapshot: dict[str, str], findings: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Restore complete scoreless evidence without changing cutoff comparisons.
+
+    Args:
+        snapshot: Frozen checkpoint including separate full source payloads.
+        findings: Findings already accepted by the canonical cutoff filter.
+
+    Returns:
+        Accepted findings with their frozen complete source payloads restored.
+    """
+    restored = []
+    for finding in findings:
+        finding_id = str(finding.get("id") or finding.get("finding_id") or "").strip()
+        serialized = snapshot.get(f"{_SCORELESS_SOURCE_SNAPSHOT_PREFIX}{finding_id}", "")
+        if serialized.startswith(_FINDING_SNAPSHOT_PAYLOAD_PREFIX):
+            try:
+                payload = json.loads(serialized.removeprefix(_FINDING_SNAPSHOT_PAYLOAD_PREFIX))
+            except (ValueError, TypeError):
+                payload = None
+            if isinstance(payload, dict):
+                restored.append(payload)
+                continue
+        restored.append(finding)
+    return restored
+
+
 def compact_boundary_source_snapshot(snapshot: dict[str, str]) -> dict[str, str]:
     """Replace transient canonical payloads with fingerprints for the marker."""
 
@@ -2078,8 +2196,8 @@ def _scheduler_result_ownership_candidates(
 
     events_path = run_dir / "resource_scheduler" / "events.jsonl"
     try:
-        event_lines = events_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
+        event_lines = read_file_bytes(events_path).decode("utf-8").splitlines()
+    except (OSError, UnicodeError):
         return []
 
     run_dir = Path(os.path.abspath(run_dir))
@@ -2542,7 +2660,7 @@ def _stable_result_content_identity(path: Path) -> str | None:
 def _file_sha256(path: Path) -> str | None:
     digest = hashlib.sha256()
     try:
-        with path.open("rb") as handle:
+        with open_readonly_file(path) as handle:
             while chunk := handle.read(1024 * 1024):
                 digest.update(chunk)
     except OSError:
@@ -2666,6 +2784,7 @@ def _finding_source_index(
     findings_dir: Path,
     run_dir: Path,
     gen_id: int,
+    source_content_hashes: dict[Path, str] | None = None,
 ) -> dict[str, list[Path]]:
     """Index raw finding files by both authored and canonical ingest ids."""
 
@@ -2681,7 +2800,7 @@ def _finding_source_index(
             continue
         seen_dirs.add(source_dir)
         for path in source_dir.glob("*.json"):
-            payload = _load_json(path)
+            payload = _load_json(path, source_content_hashes=source_content_hashes)
             if payload is None:
                 continue
             source_ids = {
@@ -2730,10 +2849,12 @@ def include_finding_sources_in_snapshot(
     root_identity = _run_root_location_identity(root)
     if root_identity is not None:
         enriched[_RESULT_SNAPSHOT_ROOT_MARKER] = root_identity
+    source_content_hashes: dict[Path, str] = {}
     source_index = _finding_source_index(
         findings_dir=findings_dir,
         run_dir=root,
         gen_id=gen_id,
+        source_content_hashes=source_content_hashes,
     )
     if canonical_findings:
         enriched[_FINDING_SNAPSHOT_MARKER] = "captured"
@@ -2763,6 +2884,14 @@ def include_finding_sources_in_snapshot(
             )
             identity = _logical_result_identity(source_path, run_dir=root)
             if published_at is None or published_at > cutoff.timestamp() or identity is None:
+                continue
+            # A timestamp can cover multiple writes on a coarse filesystem clock.
+            # Bind admission to the exact bytes used to identify this finding.
+            indexed_digest = source_content_hashes.get(source_path)
+            if (
+                indexed_digest is not None
+                and _stable_content_part(identity) != f"content:file:{indexed_digest}"
+            ):
                 continue
             try:
                 source_ref = str(source_path.relative_to(root))
@@ -3741,8 +3870,8 @@ def _materialize_late_generation_signals(*, run_dir: Path, gen_id: int) -> list[
     """Bridge protected late-job records into the canonical finding stream."""
     path = run_dir / f"gen_{int(gen_id)}" / "generation_results.json"
     try:
-        rows = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        rows = json.loads(read_file_bytes(path))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         rows = None
     if not isinstance(rows, list):
         return []
@@ -3802,6 +3931,7 @@ def collect_findings_for_generation(
     result_maturity_policy: dict[str, Any] | None = None,
     evidence_cutoff: datetime | None = None,
     evidence_source_snapshot: dict[str, str] | None = None,
+    task_spec: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Collect findings from the local store with a filesystem fallback.
 
@@ -3815,7 +3945,15 @@ def collect_findings_for_generation(
     findings get the primary value hoisted into canonical
     ``metrics[primary_metric]`` shape during ingest. Without it, frontier
     promotion silently drops them and ``variants_total`` stays at 0.
+    Explicit scoreless tasks disable result materialization and primary-metric
+    hoisting while retaining peer-authored findings of every supported type.
     """
+    from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
+
+    if is_scoreless(task_spec):
+        materialize_result_artifacts = False
+        primary_metric = None
+        result_maturity_policy = None
     run_dir = _run_dir_from_findings_dir(findings_dir)
     materialized_findings: list[dict[str, Any]] = []
     if local_mode and do_ingest:
@@ -3938,8 +4076,9 @@ def collect_findings_for_generation(
         for path in source_dir.glob("*.json")
     ):
         try:
-            with open(f_path, encoding="utf-8") as f:
-                finding = json.load(f)
+            finding = _load_json(f_path)
+            if finding is None:
+                continue
             sanitize_finding_effective_config_provenance(
                 f_path,
                 finding,

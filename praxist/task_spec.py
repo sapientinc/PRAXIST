@@ -9,6 +9,7 @@ import math
 import re
 import shlex
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any
 
@@ -246,6 +247,39 @@ def _optional_float(raw: Any, *, field_name: str) -> float | None:
 def _float_or_default(raw: Any, default: float, *, field_name: str) -> float:
     parsed = _optional_float(raw, field_name=field_name)
     return default if parsed is None else parsed
+
+
+def _optional_positive_limit(raw: Any, *, field_name: str) -> float | None:
+    if raw is None:
+        return None
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be null or a positive finite number") from exc
+    if isinstance(raw, bool) or not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError(f"{field_name} must be null or a positive finite number")
+    return parsed
+
+
+def _optional_positive_count(raw: Any, *, field_name: str) -> int | None:
+    parsed = _optional_positive_limit(raw, field_name=field_name)
+    if parsed is None:
+        return None
+    if not parsed.is_integer():
+        raise ValueError(f"{field_name} must be null or a positive whole number")
+    return int(parsed)
+
+
+def _nonnegative_interval(raw: Any, *, field_name: str) -> float:
+    if raw is None:
+        return 0.0
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be null or a nonnegative finite number") from exc
+    if isinstance(raw, bool) or not math.isfinite(parsed) or parsed < 0:
+        raise ValueError(f"{field_name} must be null or a nonnegative finite number")
+    return parsed
 
 
 def _int_or_default(raw: Any, default: int, *, field_name: str) -> int:
@@ -495,7 +529,11 @@ def _validate_declared_evaluation_horizon(
     if not formal_close_required:
         return
 
-    peer_horizon = float(generation_policy.per_generation_hours) * 60.0
+    peer_horizon = (
+        float(generation_policy.per_generation_hours) * 60.0
+        if generation_policy.per_generation_hours is not None
+        else None
+    )
     close_horizon = peer_horizon
     if synthesis_trigger.enabled:
         adaptive_ceiling = (
@@ -507,10 +545,18 @@ def _validate_declared_evaluation_horizon(
             if adaptive_enabled
             else 0.0
         )
-        close_horizon = min(
-            peer_horizon,
-            max(float(synthesis_trigger.max_interval_minutes), adaptive_ceiling),
-        )
+        trigger_horizons = [
+            value
+            for value in (synthesis_trigger.max_interval_minutes, adaptive_ceiling)
+            if value is not None and value > 0
+        ]
+        if trigger_horizons:
+            trigger_horizon = max(trigger_horizons)
+            close_horizon = (
+                min(peer_horizon, trigger_horizon) if peer_horizon is not None else trigger_horizon
+            )
+    if close_horizon is None:
+        return
     required_runtime = estimated_minutes * safety_factor
     usable_runtime = close_horizon - _GENERATION_DRAIN_MARGIN_MINUTES
     if required_runtime < usable_runtime:
@@ -1250,14 +1296,16 @@ class GenerationPolicy:
     Task projects should declare values measured from their unchanged baseline.
     The package defaults retain the established execution shape for existing
     task specs that predate explicit calibration fields.
+    Loaded scoreless tasks use ``None`` for omitted or null generation and
+    per-peer runtime caps; resource-aware cohort sizing remains active.
     """
 
-    max_generations: int = 8
+    max_generations: int | None = 8
     cohort_size: int = 5
     # `per_generation_hours` retained as the hard upper bound (safety cap)
     # for any single peer. The actual gen termination is event-driven via
     # `synthesis_trigger` — see SynthesisTriggerConfig below.
-    per_generation_hours: float = 5.0
+    per_generation_hours: float | None = 5.0
     promote_top_k: int = 2
     promote_criterion: str = "primary_metric"
 
@@ -1297,7 +1345,7 @@ class SynthesisTriggerConfig:
     enabled: bool = True
     min_findings: int = 30
     min_interval_minutes: float = 120.0
-    max_interval_minutes: float = 240.0
+    max_interval_minutes: float | None = 240.0
     min_contributing_peers: int = 3
     mature_quorum_fraction: float = 0.0
     # Legacy field name. The event-driven trigger treats this as a minimum
@@ -1335,7 +1383,7 @@ class PIAgentConfig:
     """
 
     enabled: bool = True
-    max_runtime_minutes: int = 15
+    max_runtime_minutes: int | None = 15
     # When True, run will abort if PI fails to produce a valid agenda.
     # When False, fall back to the previous generation's agenda (or no
     # agenda if gen 0 was just completed and no agenda exists yet).
@@ -1353,8 +1401,8 @@ class MultiPIConfig:
     enabled: bool = False
     panel_mode_default: str = "full"  # mini | full | high_stakes
     auto_escalate_to_high_stakes: bool = True
-    pi_max_runtime_minutes: int = 12
-    chair_max_runtime_minutes: int = 8
+    pi_max_runtime_minutes: int | None = 12
+    chair_max_runtime_minutes: int | None = 8
     chair_peer_budget: int = 5
     shared_core_ratio_target: float = 0.65
     private_kb_ratio_target: float = 0.35
@@ -1365,7 +1413,7 @@ class MultiPIConfig:
     # Round 2.5 (boundary revision) is still derived structurally from Round 2
     # outputs — not a separate LLM call.
     n_rounds: int = 2
-    round2_max_runtime_minutes: int = 6
+    round2_max_runtime_minutes: int | None = 6
 
 
 @dataclass
@@ -1471,6 +1519,8 @@ class TaskSpec:
     baselines: list[Baseline] = field(default_factory=list)
     generation_policy: GenerationPolicy = field(default_factory=GenerationPolicy)
     run_lifecycle: RunLifecyclePolicy = field(default_factory=RunLifecyclePolicy)
+    research_loop: dict[str, Any] = field(default_factory=dict)
+    execution_policy: dict[str, Any] = field(default_factory=dict)
     synthesis_trigger: SynthesisTriggerConfig = field(default_factory=SynthesisTriggerConfig)
     pi_agent: PIAgentConfig = field(default_factory=PIAgentConfig)
     multi_pi: MultiPIConfig = field(default_factory=MultiPIConfig)
@@ -1555,6 +1605,110 @@ class TaskSpec:
         return candidate
 
 
+def _research_loop_config(raw: dict[str, Any], task_dir: Path) -> dict[str, Any]:
+    """Validate opt-in research-loop behavior before any task code executes."""
+    config = raw.get("research_loop", {})
+    if not isinstance(config, dict):
+        raise ValueError("research_loop must be an object")
+    unknown = set(config) - {"mode", "lifecycle"}
+    if unknown:
+        raise ValueError(f"unknown research_loop fields: {sorted(unknown)}")
+    mode = config.get("mode", "metric")
+    if mode not in {"metric", "scoreless"}:
+        raise ValueError("research_loop.mode must be metric or scoreless")
+    result = {**config, "mode": mode}
+    if mode == "scoreless":
+        evaluation = raw.get("evaluation") or {}
+        for key in (
+            "primary_metric",
+            "aux_metrics",
+            "anchor_metrics",
+            "frontier_lanes",
+            "requires_tier",
+            "maturity_policy",
+        ):
+            if evaluation.get(key):
+                raise ValueError(f"scoreless research cannot configure evaluation.{key}")
+        if raw.get("baselines"):
+            raise ValueError("scoreless research cannot declare scored baselines")
+        if _bool_or_default(
+            (raw.get("gems") or {}).get("enabled", False), False, field_name="gems.enabled"
+        ):
+            raise ValueError("scoreless research cannot enable Gems")
+        quorum = (raw.get("synthesis_trigger") or {}).get("mature_quorum_fraction", 0)
+        if quorum and float(quorum) != 0:
+            raise ValueError("scoreless research cannot require scored maturity quorum")
+    lifecycle = config.get("lifecycle", {})
+    if not isinstance(lifecycle, dict):
+        raise ValueError("research_loop.lifecycle must be an object")
+    if not lifecycle:
+        return result
+    if mode != "scoreless":
+        raise ValueError("task lifecycle callbacks require research_loop.mode=scoreless")
+    unknown = set(lifecycle) - {
+        "entrypoint",
+        "initial_seconds",
+        "finalization_seconds",
+        "config",
+        "after_generation",
+    }
+    if unknown:
+        raise ValueError(f"unknown research_loop.lifecycle fields: {sorted(unknown)}")
+    entrypoint = lifecycle.get("entrypoint")
+    if not isinstance(entrypoint, str) or ":" not in entrypoint:
+        raise ValueError("lifecycle.entrypoint must name a task-relative Python file:function")
+    filename, function = entrypoint.rsplit(":", 1)
+    relative = Path(filename)
+    resolved = (task_dir / relative).resolve()
+    if (
+        relative.is_absolute()
+        or relative.suffix != ".py"
+        or not function.isidentifier()
+        or not resolved.is_relative_to(task_dir.resolve())
+        or not resolved.is_file()
+    ):
+        raise ValueError("lifecycle.entrypoint must resolve to an existing task-owned Python file")
+    total_hours = (raw.get("run_lifecycle") or {}).get("max_wall_clock_hours")
+    total_seconds = None
+    if total_hours is not None:
+        if isinstance(total_hours, bool):
+            raise ValueError("lifecycle requires a finite positive run wall-clock budget")
+        try:
+            total_seconds = float(total_hours) * 3600
+        except (TypeError, ValueError) as exc:
+            raise ValueError("lifecycle requires a finite positive run wall-clock budget") from exc
+        if not math.isfinite(total_seconds) or total_seconds <= 0:
+            raise ValueError("lifecycle requires a finite positive run wall-clock budget")
+    normalized = dict(lifecycle)
+    if "after_generation" in lifecycle and not isinstance(lifecycle["after_generation"], bool):
+        raise ValueError("lifecycle.after_generation must be boolean")
+    for field_name in ("initial_seconds", "finalization_seconds"):
+        value = lifecycle.get(field_name, 1800 if total_seconds is not None else None)
+        if value is None:
+            normalized[field_name] = None
+            continue
+        if isinstance(value, bool):
+            raise ValueError(f"lifecycle.{field_name} must be a positive finite number or null")
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"lifecycle.{field_name} must be a positive finite number or null"
+            ) from exc
+        if not math.isfinite(seconds) or seconds <= 0:
+            raise ValueError(f"lifecycle.{field_name} must be a positive finite number or null")
+        normalized[field_name] = seconds
+    reserved_seconds = (normalized["initial_seconds"] or 0) + (
+        normalized["finalization_seconds"] or 0
+    )
+    if total_seconds is not None and reserved_seconds >= total_seconds:
+        raise ValueError("lifecycle phase reserves must leave time for research")
+    if not isinstance(lifecycle.get("config", {}), dict):
+        raise ValueError("lifecycle.config must be an object")
+    result["lifecycle"] = normalized
+    return result
+
+
 def load_task_spec(path: str | Path) -> TaskSpec:
     """Load a TaskSpec from a YAML file."""
     path_obj = Path(path)
@@ -1567,10 +1721,17 @@ def load_task_spec(path: str | Path) -> TaskSpec:
         raw = yaml.safe_load(f) or {}
 
     task_dir = str(path_obj.parent)
+    research_loop = _research_loop_config(raw, path_obj.parent)
+    scoreless = research_loop["mode"] == "scoreless"
+    execution_policy = {}
+    if "execution_policy" in raw:
+        from praxist.core.execution_policy import validate_task_execution_policy
+
+        execution_policy = validate_task_execution_policy(raw["execution_policy"])
 
     eval_raw = raw.get("evaluation", {})
     evaluation = EvaluationSpec(
-        primary_metric=eval_raw.get("primary_metric", "metric_value"),
+        primary_metric="" if scoreless else eval_raw.get("primary_metric", "metric_value"),
         direction=eval_raw.get("direction", "maximize"),
         aux_metrics=eval_raw.get("aux_metrics", []),
         seeds=eval_raw.get("seeds", [42, 43, 44, 45, 46]),
@@ -1705,32 +1866,49 @@ def load_task_spec(path: str | Path) -> TaskSpec:
         for field_name in ("max_generations", "cohort_size", "per_generation_hours")
         if field_name not in gp_raw
     ]
-    if missing_generation_fields:
+    if missing_generation_fields and not scoreless:
         logger.warning(
             "task_spec omits calibrated generation_policy field(s) %s; using the established "
             "package defaults. Calibrate these values from the unchanged task baseline.",
             ", ".join(missing_generation_fields),
         )
     gen_policy = GenerationPolicy(
-        max_generations=_int_or_default(
-            gp_raw.get("max_generations", 8),
-            8,
-            field_name="generation_policy.max_generations",
+        max_generations=(
+            _optional_positive_count(
+                gp_raw.get("max_generations"), field_name="generation_policy.max_generations"
+            )
+            if scoreless
+            else _int_or_default(
+                gp_raw.get("max_generations", 8),
+                8,
+                field_name="generation_policy.max_generations",
+            )
         ),
         cohort_size=_int_or_default(
             gp_raw.get("cohort_size", 5),
             5,
             field_name="generation_policy.cohort_size",
         ),
-        per_generation_hours=_float_or_default(
-            gp_raw.get("per_generation_hours", 5.0),
-            5.0,
-            field_name="generation_policy.per_generation_hours",
+        per_generation_hours=(
+            _optional_positive_limit(
+                gp_raw.get("per_generation_hours"),
+                field_name="generation_policy.per_generation_hours",
+            )
+            if scoreless
+            else _float_or_default(
+                gp_raw.get("per_generation_hours", 5.0),
+                5.0,
+                field_name="generation_policy.per_generation_hours",
+            )
         ),
-        promote_top_k=_int_or_default(
-            gp_raw.get("promote_top_k", 2),
-            2,
-            field_name="generation_policy.promote_top_k",
+        promote_top_k=(
+            0
+            if scoreless
+            else _int_or_default(
+                gp_raw.get("promote_top_k", 2),
+                2,
+                field_name="generation_policy.promote_top_k",
+            )
         ),
         promote_criterion=gp_raw.get("promote_criterion", "primary_metric"),
     )
@@ -1759,7 +1937,7 @@ def load_task_spec(path: str | Path) -> TaskSpec:
         )
         if field_name not in st_raw
     ]
-    if missing_trigger_fields:
+    if missing_trigger_fields and not scoreless:
         logger.warning(
             "task_spec omits calibrated synthesis_trigger field(s) %s; using the established "
             "event-driven defaults. Calibrate them from observed task throughput.",
@@ -1786,15 +1964,29 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             30,
             field_name="synthesis_trigger.min_findings",
         ),
-        min_interval_minutes=_float_or_default(
-            st_raw.get("min_interval_minutes", 120.0),
-            120.0,
-            field_name="synthesis_trigger.min_interval_minutes",
+        min_interval_minutes=(
+            _nonnegative_interval(
+                st_raw.get("min_interval_minutes"),
+                field_name="synthesis_trigger.min_interval_minutes",
+            )
+            if scoreless
+            else _float_or_default(
+                st_raw.get("min_interval_minutes", 120.0),
+                120.0,
+                field_name="synthesis_trigger.min_interval_minutes",
+            )
         ),
-        max_interval_minutes=_float_or_default(
-            st_raw.get("max_interval_minutes", 240.0),
-            240.0,
-            field_name="synthesis_trigger.max_interval_minutes",
+        max_interval_minutes=(
+            _optional_positive_limit(
+                st_raw.get("max_interval_minutes"),
+                field_name="synthesis_trigger.max_interval_minutes",
+            )
+            if scoreless
+            else _float_or_default(
+                st_raw.get("max_interval_minutes", 240.0),
+                240.0,
+                field_name="synthesis_trigger.max_interval_minutes",
+            )
         ),
         min_contributing_peers=_int_or_default(
             st_raw.get("min_contributing_peers", 3),
@@ -1828,11 +2020,8 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             gen_policy.cohort_size,
             reachable_contributors,
         )
-        synth_trigger = SynthesisTriggerConfig(
-            **{
-                **synth_trigger.__dict__,
-                "min_contributing_peers": reachable_contributors,
-            }
+        synth_trigger = dataclass_replace(
+            synth_trigger, min_contributing_peers=reachable_contributors
         )
 
     # v2026-05-04: PI agent config
@@ -1843,7 +2032,13 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             True,
             field_name="pi_agent.enabled",
         ),
-        max_runtime_minutes=pi_raw.get("max_runtime_minutes", 15),
+        max_runtime_minutes=(
+            _optional_positive_count(
+                pi_raw.get("max_runtime_minutes"), field_name="pi_agent.max_runtime_minutes"
+            )
+            if scoreless
+            else pi_raw.get("max_runtime_minutes", 15)
+        ),
         strict=_bool_or_default(
             pi_raw.get("strict", False),
             False,
@@ -1868,8 +2063,21 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             True,
             field_name="multi_pi.auto_escalate_to_high_stakes",
         ),
-        pi_max_runtime_minutes=int(mp_raw.get("pi_max_runtime_minutes", 12)),
-        chair_max_runtime_minutes=int(mp_raw.get("chair_max_runtime_minutes", 8)),
+        pi_max_runtime_minutes=(
+            _optional_positive_count(
+                mp_raw.get("pi_max_runtime_minutes"), field_name="multi_pi.pi_max_runtime_minutes"
+            )
+            if scoreless
+            else int(mp_raw.get("pi_max_runtime_minutes", 12))
+        ),
+        chair_max_runtime_minutes=(
+            _optional_positive_count(
+                mp_raw.get("chair_max_runtime_minutes"),
+                field_name="multi_pi.chair_max_runtime_minutes",
+            )
+            if scoreless
+            else int(mp_raw.get("chair_max_runtime_minutes", 8))
+        ),
         chair_peer_budget=int(mp_raw.get("chair_peer_budget", 5)),
         shared_core_ratio_target=float(mp_raw.get("shared_core_ratio_target", 0.65)),
         private_kb_ratio_target=float(mp_raw.get("private_kb_ratio_target", 0.35)),
@@ -1879,7 +2087,14 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             field_name="multi_pi.fallback_to_single_pi_on_panel_failure",
         ),
         n_rounds=int(mp_raw.get("n_rounds", 2)),
-        round2_max_runtime_minutes=int(mp_raw.get("round2_max_runtime_minutes", 6)),
+        round2_max_runtime_minutes=(
+            _optional_positive_count(
+                mp_raw.get("round2_max_runtime_minutes"),
+                field_name="multi_pi.round2_max_runtime_minutes",
+            )
+            if scoreless
+            else int(mp_raw.get("round2_max_runtime_minutes", 6))
+        ),
     )
     if multi_pi.n_rounds not in (1, 2):
         logger.warning(
@@ -1966,7 +2181,11 @@ def load_task_spec(path: str | Path) -> TaskSpec:
     # safety cap, peers can time out before the orchestrator's synthesis
     # cap fires, creating mixed termination semantics. Auto-clamp that
     # case; equality is allowed for tasks that intentionally align both caps.
-    safety_cap_min = gen_policy.per_generation_hours * 60
+    safety_cap_min = (
+        gen_policy.per_generation_hours * 60
+        if gen_policy.per_generation_hours is not None
+        else None
+    )
     adaptive_max = 0.0
     adaptive_enabled = bool(
         isinstance(synth_trigger.adaptive, dict)
@@ -1983,16 +2202,18 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             adaptive_max = 0.0
         if not math.isfinite(adaptive_max):
             adaptive_max = 0.0
-    effective_synthesis_max = max(
-        _float_or_default(
-            synth_trigger.max_interval_minutes,
-            30.0,
-            field_name="synthesis_trigger.max_interval_minutes",
-        ),
-        adaptive_max,
-    )
+    synthesis_limits = [
+        value
+        for value in (synth_trigger.max_interval_minutes, adaptive_max)
+        if value is not None and value > 0
+    ]
+    effective_synthesis_max = max(synthesis_limits) if synthesis_limits else None
     min_usable_cap = 15  # below this, misconfiguration is too severe to auto-correct
-    if effective_synthesis_max > safety_cap_min:
+    if (
+        safety_cap_min is not None
+        and effective_synthesis_max is not None
+        and effective_synthesis_max > safety_cap_min
+    ):
         if safety_cap_min < min_usable_cap:
             raise ValueError(
                 f"per_generation_hours={gen_policy.per_generation_hours}h "
@@ -2017,14 +2238,19 @@ def load_task_spec(path: str | Path) -> TaskSpec:
             clamped,
         )
         updates = {**synth_trigger.__dict__}
-        updates["max_interval_minutes"] = min(int(synth_trigger.max_interval_minutes), clamped)
+        if synth_trigger.max_interval_minutes is not None:
+            updates["max_interval_minutes"] = min(int(synth_trigger.max_interval_minutes), clamped)
         if adaptive_enabled and isinstance(updates.get("adaptive"), dict):
             adaptive_cfg = dict(updates["adaptive"])
             if adaptive_max > clamped:
                 adaptive_cfg["max_interval_ceiling_minutes"] = clamped
             updates["adaptive"] = adaptive_cfg
         synth_trigger = type(synth_trigger)(**updates)
-    elif effective_synthesis_max + 30 > safety_cap_min:
+    elif (
+        safety_cap_min is not None
+        and effective_synthesis_max is not None
+        and effective_synthesis_max + 30 > safety_cap_min
+    ):
         # Slack < 30 min: warn but don't clamp (still within tolerance)
         logger.warning(
             "effective synthesis max interval=%.1f minutes is too close to "
@@ -2048,13 +2274,16 @@ def load_task_spec(path: str | Path) -> TaskSpec:
         ),
     )
 
-    logger.info(
-        "task_spec resolved max_generations=%d; the run will execute at most "
-        "%d generation(s) with %d PI synthesis event(s) between them.",
-        gen_policy.max_generations,
-        gen_policy.max_generations,
-        max(0, gen_policy.max_generations - 1),
-    )
+    if gen_policy.max_generations is None:
+        logger.info("task_spec has no configured generation-count limit")
+    else:
+        logger.info(
+            "task_spec resolved max_generations=%d; the run will execute at most "
+            "%d generation(s) with %d PI synthesis event(s) between them.",
+            gen_policy.max_generations,
+            gen_policy.max_generations,
+            max(0, gen_policy.max_generations - 1),
+        )
 
     # Tiered eval block (optional, for prompt rendering only).
     tiered_raw = raw.get("tiered_eval", {})
@@ -2249,6 +2478,8 @@ def load_task_spec(path: str | Path) -> TaskSpec:
         baselines=baselines,
         generation_policy=gen_policy,
         run_lifecycle=run_lifecycle,
+        research_loop=research_loop,
+        execution_policy=execution_policy,
         synthesis_trigger=synth_trigger,
         pi_agent=pi_agent,
         multi_pi=multi_pi,

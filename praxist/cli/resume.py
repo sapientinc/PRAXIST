@@ -13,7 +13,7 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,6 +34,7 @@ from praxist.cli.registry import (
     registry_lock,
 )
 from praxist.cli.status import pid_is_alive, read_ps_table, registry_command_matches
+from praxist.core.controller_state import controller_state_enabled, read_private_startup_config
 from praxist.plugins.workflow_stages.research_loop.backend.resume_state import (
     ensure_resumable_run_dir,
 )
@@ -471,6 +472,12 @@ def _validate_resume_entry(entry: RegistryEntry, *, force: bool) -> None:
 
 def _target_from_registry(entry: RegistryEntry) -> ResumeTarget:
     run_dir = Path(entry.run_dir).expanduser().resolve()
+    if controller_state_enabled():
+        return replace(
+            _target_from_run_dir(run_dir),
+            source="private_controller_state",
+            source_run_id=entry.run_id,
+        )
     _ensure_resumable(run_dir)
     auth_mode = entry.extra.get("auth_mode", "").strip()
     return ResumeTarget(
@@ -495,7 +502,15 @@ def _target_from_registry(entry: RegistryEntry) -> ResumeTarget:
 
 def _target_from_run_dir(run_dir: Path) -> ResumeTarget:
     _ensure_resumable(run_dir)
-    startup_config = _read_json_object(run_dir / "startup_config.json")
+    try:
+        private_config = read_private_startup_config(run_dir)
+    except ValueError as exc:
+        raise ResumeError(str(exc)) from exc
+    startup_config = (
+        private_config
+        if private_config is not None
+        else _read_json_object(run_dir / "startup_config.json")
+    )
     canonical_args = startup_config.get("canonical_args")
     canonical_args = canonical_args if isinstance(canonical_args, dict) else {}
     task_project = startup_config.get("task_project")
@@ -521,8 +536,12 @@ def _target_from_run_dir(run_dir: Path) -> ResumeTarget:
         cohort=_optional_str(canonical_args.get("cohort")),
         generations=_optional_str(canonical_args.get("generations")),
         server=server,
-        source="run_dir",
-        codex_native=_run_dir_used_codex_native(run_dir, canonical_args),
+        source="private_controller_state" if private_config is not None else "run_dir",
+        codex_native=(
+            _optional_bool(canonical_args.get("codex_native"), default=False)
+            if private_config is not None
+            else _run_dir_used_codex_native(run_dir, canonical_args)
+        ),
     )
 
 

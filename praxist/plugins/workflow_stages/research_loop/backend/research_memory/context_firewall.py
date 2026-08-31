@@ -10,8 +10,10 @@ Token budget is enforced by a coarse char-count proxy (~4 chars/token).
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -56,12 +58,76 @@ def estimate_tokens(obj: Any) -> int:
     return max(1, n_bytes // CHARS_PER_TOKEN)
 
 
+def _shrink_scoreless_context(d: dict[str, Any], budget_tokens: int) -> dict[str, Any]:
+    """Keep bounded evidence structured and label every budget-induced omission."""
+    out = copy.deepcopy(d)
+    rows = [row for row in out.get("scoreless_evidence", []) if isinstance(row, dict)]
+    input_count = len(rows)
+    out["scoreless_evidence"] = rows
+    metadata = {
+        "input_count": input_count,
+        "returned": input_count,
+        "omitted_for_budget": 0,
+        "input_scope": "bounded_retained_evidence",
+        "budget_truncated": False,
+        "budget_exceeded": False,
+    }
+    out["scoreless_evidence_meta"] = metadata
+    if estimate_tokens(out) <= budget_tokens:
+        return out
+
+    for row in rows:
+        for key in ("content", "title", "summary"):
+            value = row.get(key)
+            if isinstance(value, str) and len(value) > 500:
+                row[key] = value[:500]
+                row[f"{key}_truncated"] = True
+                metadata["budget_truncated"] = True
+    if estimate_tokens(out) > budget_tokens:
+        base = {
+            key: value
+            for key, value in out.items()
+            if key not in {"research_loop_mode", "scoreless_evidence", "scoreless_evidence_meta"}
+        }
+        out = shrink_dict(base, max(1, budget_tokens // 2))
+        out.update(
+            {
+                "research_loop_mode": "scoreless",
+                "scoreless_evidence": rows,
+                "scoreless_evidence_meta": metadata,
+            }
+        )
+    while rows and estimate_tokens(out) > budget_tokens:
+        counts = Counter(str(row.get("finding_type") or "unknown") for row in rows)
+        # Retain at least one row per type while the budget permits it.
+        drop_index = next(
+            (
+                index
+                for index in range(len(rows) - 1, -1, -1)
+                if counts[str(rows[index].get("finding_type") or "unknown")] > 1
+            ),
+            len(rows) - 1,
+        )
+        rows.pop(drop_index)
+        metadata.update(
+            {
+                "returned": len(rows),
+                "omitted_for_budget": input_count - len(rows),
+                "budget_truncated": True,
+            }
+        )
+    metadata["budget_exceeded"] = estimate_tokens(out) > budget_tokens
+    return out
+
+
 def shrink_dict(d: dict[str, Any], budget_tokens: int) -> dict[str, Any]:
     """Try to shrink a dict to fit within token budget by:
     1. truncating string values
     2. truncating list values
     3. dropping low-priority keys
     """
+    if d.get("research_loop_mode") == "scoreless":
+        return _shrink_scoreless_context(d, budget_tokens)
     if estimate_tokens(d) <= budget_tokens:
         return d
 

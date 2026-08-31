@@ -86,7 +86,6 @@ def _compact_context(ctx: dict[str, Any], config: DIGLiteConfig) -> dict[str, An
         "candidate_count": config.candidate_count,
         "min_mechanism_families": config.min_mechanism_families,
         "min_intervention_surfaces": config.min_intervention_surfaces,
-        "max_refinement_rounds": config.max_refinement_rounds,
         "diversity_cell_fields": config.diversity.cell_fields,
         "innovation_policy": {
             "enabled": config.innovation.enabled,
@@ -95,6 +94,8 @@ def _compact_context(ctx: dict[str, Any], config: DIGLiteConfig) -> dict[str, An
             "diagnostic_mechanism_families": config.innovation.diagnostic_mechanism_families,
         },
     }
+    if config.max_refinement_rounds is not None:
+        compact["dig_config"]["max_refinement_rounds"] = config.max_refinement_rounds
     compact["allowed_file_rules"] = [
         "Variant-local code and config under the peer's assigned variant directory.",
         "Variant-local analysis scripts when the task allows them.",

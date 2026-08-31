@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +24,12 @@ ROLE_CLASS_BY_ID = {
 
 
 def instantiate_pi_roles(
-    role_ids: list[str | PanelRoleSpec],
+    role_ids: Sequence[str | PanelRoleSpec],
     *,
     run_dir: Path,
     workspace: Path,
     model: str,
-    max_runtime_minutes: int,
+    max_runtime_minutes: int | None,
     mcp_servers: dict[str, Any] | None,
     stop_check_fn: Callable[[], bool] | None,
     premium_mode: bool,

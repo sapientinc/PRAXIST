@@ -28,4 +28,5 @@ runtime:
 entrypoint: adapter:create_runtime
 code:
   - adapter.py
+  - _mcp.py
 assets: []

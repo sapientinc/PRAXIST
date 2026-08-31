@@ -97,6 +97,7 @@ from praxist.cli.registry import (
     write_entry,
 )
 from praxist.cli.status import pid_is_alive, read_ps_table, registry_command_matches
+from praxist.core.storage import open_append_file
 from praxist.task_spec import load_task_spec
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type checkers
@@ -1002,8 +1003,7 @@ def _spawn_child(
     leader, so the operator's terminal closing does not deliver SIGHUP.
     ``stdin`` is connected to ``/dev/null`` to break TTY inheritance.
     """
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    with log_file.open("ab") as log_handle, open(os.devnull, "rb") as devnull:
+    with open_append_file(log_file) as log_handle, open(os.devnull, "rb") as devnull:
         proc = spawn(
             list(command),
             stdin=devnull,
@@ -1057,7 +1057,6 @@ def _spawn_daemonized(
     pipe, raises :class:`StartError` on an ``ERR:`` payload, or
     returns the parsed PID otherwise.
     """
-    log_file.parent.mkdir(parents=True, exist_ok=True)
     try:
         import fcntl
     except ImportError as exc:  # pragma: no cover - Windows-specific path
@@ -1111,17 +1110,10 @@ def _spawn_daemonized(
         os.chdir("/")
         os.umask(0o022)
 
-        log_fd = os.open(
-            str(log_file),
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-            0o644,
-        )
-        null_fd = os.open(os.devnull, os.O_RDONLY)
-        os.dup2(null_fd, 0)
-        os.dup2(log_fd, 1)
-        os.dup2(log_fd, 2)
-        os.close(null_fd)
-        os.close(log_fd)
+        with open_append_file(log_file) as log_handle, open(os.devnull, "rb") as devnull:
+            os.dup2(devnull.fileno(), 0)
+            os.dup2(log_handle.fileno(), 1)
+            os.dup2(log_handle.fileno(), 2)
 
         # Report PID (which becomes the workload's PID after exec)
         # to the original parent BEFORE the exec attempt.

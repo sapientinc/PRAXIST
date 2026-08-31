@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shlex
@@ -15,21 +14,25 @@ from typing import Any
 import yaml
 
 from praxist import __version__
-from praxist.core.budget import policy_for_ref
 from praxist.core.cache import build_cache_policy
+from praxist.core.controller_state import (
+    CONTROLLER_STATE_ENV,
+    controller_state_enabled,
+    read_private_startup_config,
+    validate_controller_run_directory,
+    write_private_startup_config,
+)
 from praxist.core.credentials import (
     CredentialFailoverManager,
     CredentialResolver,
     CredentialSet,
 )
-from praxist.core.ledgers import BudgetLedger
 from praxist.core.modeling import (
     model_profiles_snapshot,
     normalize_model_for_provider,
     provider_default_model,
     validate_model_for_provider,
 )
-from praxist.core.protocol import BudgetRequest
 from praxist.core.redaction import scan_text
 from praxist.core.registry import (
     PluginLoader,
@@ -60,6 +63,7 @@ from praxist.core.workflow import emit_disabled_optional_events
 from praxist.plugins.workflow_stages.research_loop.backend.run_summary import (
     write_run_summary,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 from praxist.plugins.workflow_stages.research_loop.legacy_output_materializer import (
     _materialize_legacy_outputs,
 )
@@ -72,11 +76,28 @@ from praxist.plugins.workflow_stages.research_loop.peer_roles import (
 from praxist.plugins.workflow_stages.research_loop.provider_env import (
     freeze_provider_env,
 )
-from praxist.plugins.workflow_stages.research_loop.stage import planned_research_loop_usage
+from praxist.plugins.workflow_stages.research_loop.runtime_preparation import (
+    prepare_task_runtime,
+)
+from praxist.plugins.workflow_stages.research_loop.stage import (
+    planned_research_loop_usage as planned_research_loop_usage,
+)
+from praxist.plugins.workflow_stages.research_loop.stage import (
+    uncapped_research_loop_budget,
+)
+from praxist.plugins.workflow_stages.research_loop.stage_budget import (
+    grant_stage_budget as _grant_stage_budget,
+)
+from praxist.plugins.workflow_stages.research_loop.startup_authority import (
+    ensure_fresh_run_dir as _ensure_fresh_run_dir,
+)
+from praxist.plugins.workflow_stages.research_loop.startup_authority import (
+    prepare_startup_identity,
+    validate_private_resume_selection,
+)
 from praxist.task_spec import TaskSpec, load_task_spec
 
 from .backend import resume_state, run_report, runtime_environment
-from .backend.resume_state import ensure_resumable_run_dir, validate_resume_startup_identity
 
 RESEARCH_LOOP_STAGE_REF = "workflow_stage:research_loop"
 _model_profile_defaults_from_task_descriptor = model_profile_defaults_from_task_descriptor
@@ -325,6 +346,8 @@ def _task_runtime_env(
     if isinstance(custom_env, dict):
         for key, value in custom_env.items():
             env_key = str(key).strip()
+            if env_key == CONTROLLER_STATE_ENV:
+                raise ValueError(f"runtime_environment.env cannot override {CONTROLLER_STATE_ENV}")
             if not _is_safe_env_key(env_key):
                 raise ValueError(f"runtime_environment.env contains invalid key: {env_key!r}")
             env_value = str(value)
@@ -560,6 +583,18 @@ def prepare_research_loop_plugin_run(
     task_descriptor = project.descriptor
     _ensure_run_dir_not_in_system_repo(run_dir)
     _ensure_fresh_run_dir(run_dir, resume=resume)
+    validate_controller_run_directory(run_dir)
+    if resume:
+        private_startup = read_private_startup_config(run_dir)
+        if private_startup is not None:
+            validate_private_resume_selection(
+                private_startup,
+                project=project,
+                runtime_ref=runtime_ref,
+                model_provider_ref=model_provider_ref,
+                budget_policy_ref=budget_policy_ref,
+                local_mode=local_mode,
+            )
     _validate_research_loop_task_eligibility(task_ref, task_descriptor)
     _reject_enabled_optional_stubs(task_descriptor)
     disabled_optional = _disabled_optional_from_descriptor(task_descriptor)
@@ -585,6 +620,32 @@ def prepare_research_loop_plugin_run(
         task_descriptor,
         os.environ,
     )
+    effective_model = normalize_model_for_provider(
+        model_provider_ref,
+        model or _default_model_for_provider(model_provider_ref),
+        registry,
+    )
+    validate_model_for_provider(model_provider_ref, effective_model, registry)
+    canonical_args, resume_identity, previous_run_metadata = prepare_startup_identity(
+        project=project,
+        task_ref=task_ref,
+        run_dir=run_dir,
+        runtime_ref=runtime_ref,
+        model_provider_ref=model_provider_ref,
+        budget_policy_ref=budget_policy_ref,
+        model=effective_model,
+        frontier_strategy=frontier_strategy,
+        local_mode=local_mode,
+        effective_task_descriptor=effective_task_descriptor,
+        resume=resume,
+        resume_policy=resume_policy,
+    )
+    prepare_task_runtime(
+        task_descriptor=effective_task_descriptor,
+        task_path=task_project_path,
+        run_dir=run_dir,
+        resume=resume,
+    )
     tool_server_refs = effective_research_tool_server_refs_from_task_descriptor(
         effective_task_descriptor
     )
@@ -594,12 +655,6 @@ def prepare_research_loop_plugin_run(
         task_project_path=task_project_path,
     )
     peer_role_ref = peer_role_refs[0] if peer_role_refs else "role:peer"
-    effective_model = normalize_model_for_provider(
-        model_provider_ref,
-        model or _default_model_for_provider(model_provider_ref),
-        registry,
-    )
-    validate_model_for_provider(model_provider_ref, effective_model, registry)
     resolver = CredentialResolver()
     credential_set, model_provider_credential = resolve_model_credential_for_runtime(
         resolver.discover(profile=credential_profile),
@@ -648,19 +703,10 @@ def prepare_research_loop_plugin_run(
         provider_cache_strategy=provider_cache_strategy,
     )
 
-    startup_config = {
+    startup_config: dict[str, Any] = {
         "schema_version": "praxist.startup.v1",
         "command": command or f"python -m praxist.run run --task-path {task_project_path}",
-        "canonical_args": {
-            "task": task_ref,
-            "task_path": str(task_project_path),
-            "runtime": runtime_ref,
-            "model_provider": model_provider_ref,
-            "budget_policy": budget_policy_ref,
-            "model": effective_model,
-            "frontier_strategy": frontier_strategy,
-            "run_dir": str(run_dir),
-        },
+        "canonical_args": canonical_args,
         "deprecated_args_seen": deprecated_args_seen or [],
         "env_overrides_seen": env_overrides_seen,
         "runtime_environment": {
@@ -681,25 +727,23 @@ def prepare_research_loop_plugin_run(
             "policy": resume_policy,
             "run_dir": str(run_dir) if resume else "",
         },
-        "resume_identity": {
-            "task_project_manifest_sha256": project.manifest["sha256"],
-            "effective_task_descriptor_sha256": hashlib.sha256(
-                json.dumps(
-                    effective_task_descriptor, sort_keys=True, default=str, separators=(",", ":")
-                ).encode("utf-8")
-            ).hexdigest(),
-            "local_mode": bool(local_mode),
-        },
+        "resume_identity": resume_identity,
     }
-    previous_run_metadata = (
-        validate_resume_startup_identity(
-            run_dir,
-            startup_config,
-            candidate_task_project_manifest=project.manifest,
+    if controller_state_enabled():
+        startup_config["canonical_args"].update(
+            cohort=task_spec.generation_policy.cohort_size,
+            generations=task_spec.generation_policy.max_generations,
+            server=not local_mode,
+            codex_native=bool(
+                model_provider_credential is not None
+                and model_provider_credential.source == "runtime_session"
+                and ":chatgpt:" in model_provider_credential.key_id
+            ),
         )
-        if resume
-        else {}
-    )
+    if uncapped_research_loop_budget(task_spec):
+        startup_config["budget_authorization"] = {"uncapped": True, "source": "task_configuration"}
+    if not resume:
+        write_private_startup_config(run_dir, startup_config)
 
     run_dir.mkdir(parents=True, exist_ok=True)
     ensure_run_dirs(run_dir)
@@ -879,13 +923,31 @@ def finalize_research_loop_plugin_run(
     error: str | None = None,
     exit_code: int | None = None,
 ) -> None:
-    """Write terminal run summary, materialized views, and trajectory events."""
+    """Write terminal run summary, materialized views, and trajectory events.
+
+    Args:
+        prepared: Startup-selected task, runtime, credentials, and output paths.
+        success: Whether research execution completed successfully.
+        result: Research-loop result retained in the terminal summary.
+        error: Existing execution error, if any.
+        exit_code: Failure exit code; defaults to one.
+
+    Raises:
+        ValueError: An otherwise successful scoreless run failed output integrity
+            checks. Failed status is persisted before raising; a subsequent
+            failure finalization does not raise for the same materialization error.
+    """
     status = "succeeded" if success else "failed"
     materialization_error = None
+    raise_materialization_error = False
     try:
         canonical_outputs = _materialize_legacy_outputs(prepared, result or {})
     except Exception as exc:  # noqa: BLE001 - finalization must preserve the run summary.
         materialization_error = str(exc)
+        if is_scoreless(prepared.task_spec):
+            raise_materialization_error = success
+            success, status, exit_code = False, "failed", 1
+            error = error or "scoreless output materialization failed"
         canonical_outputs = {
             "finding_count": 0,
             "frontier_count": 0,
@@ -928,7 +990,11 @@ def finalize_research_loop_plugin_run(
             "max_generations",
             prepared.task_spec.generation_policy.max_generations,
         ),
-        "exit_condition": normalized_result.get("exit_condition", status),
+        "exit_condition": (
+            "scoreless_materialization_failed"
+            if materialization_error and is_scoreless(prepared.task_spec)
+            else normalized_result.get("exit_condition", status)
+        ),
         "run_dir": str(prepared.run_dir),
         "frontier_summary": normalized_result.get("frontier_summary", []),
         "gems": normalized_result.get("gems", {}),
@@ -971,6 +1037,8 @@ def finalize_research_loop_plugin_run(
     run_json["finalized_at"] = utc_now()
     write_json(prepared.run_dir / "run.json", run_json)
     run_report.generate_terminal_report_safely(prepared, summary)
+    if raise_materialization_error:
+        raise ValueError("scoreless output materialization failed")
 
 
 def _gems_count_from_result(result: dict[str, Any]) -> int:
@@ -1206,44 +1274,6 @@ def _touch_required_jsonl(run_dir: Path) -> None:
         path.touch(exist_ok=True)
 
 
-def _ensure_fresh_run_dir(run_dir: Path, *, resume: bool = False) -> None:
-    if resume:
-        ensure_resumable_run_dir(run_dir)
-        return
-    if not run_dir.exists():
-        return
-    for rel in (
-        "run.json",
-        "trajectory.jsonl",
-        "budget_ledger.jsonl",
-        "artifact_index.jsonl",
-        "run_summary.json",
-        "plugin_resolution.json",
-        "startup_config.json",
-    ):
-        if (run_dir / rel).exists():
-            raise ValueError(
-                f"run_dir already contains Praxist run artifacts: {run_dir}. "
-                "Resume mode is not implemented; choose a fresh run directory."
-            )
-    blocking_paths = [path for path in run_dir.iterdir() if not _is_ignorable_precreated_path(path)]
-    if blocking_paths:
-        raise ValueError(
-            f"run_dir already exists and is not empty: {run_dir}. "
-            "Resume mode is not implemented; choose a fresh run directory."
-        )
-
-
-def _is_ignorable_precreated_path(path: Path) -> bool:
-    if path.is_file():
-        return path.name in {".DS_Store", ".gitkeep"}
-    if path.is_dir():
-        if path.name == "logs":
-            return all(child.name in {".gitkeep", "launcher.nohup.log"} for child in path.iterdir())
-        return not any(path.iterdir())
-    return False
-
-
 def _ensure_run_dir_not_in_system_repo(run_dir: Path) -> None:
     system_root = Path(__file__).resolve().parents[4]
     resolved = Path(run_dir).expanduser().resolve()
@@ -1261,69 +1291,6 @@ def _ensure_safe_run_id(run_id: str) -> None:
     hits = scan_text(run_id)
     if hits:
         raise ValueError(f"run_id contains secret-looking content: {','.join(sorted(set(hits)))}")
-
-
-def _grant_stage_budget(
-    *,
-    run_dir: Path,
-    run_id: str,
-    task_ref: str,
-    task_spec: TaskSpec,
-    budget_policy_ref: str,
-    trajectory: TrajectoryWriter,
-    registry: Any | None = None,
-) -> str | None:
-    requested = planned_research_loop_usage(task_spec)
-    request = BudgetRequest(
-        request_id="budget_request_research_loop_start",
-        requester_id="workflow_stage:research_loop",
-        experiment_id=f"{task_ref}/research_loop",
-        model_profile_ref="",
-        requested=requested,
-        expected_value={
-            "confidence": "strong",
-            "value": "stage_execution",
-            "requires_full_stage_budget": True,
-        },
-        evidence_refs=[task_ref],
-        cheaper_alternatives=[],
-        abort_conditions=["stage_startup_failed"],
-    )
-    decision = policy_for_ref(budget_policy_ref, registry=registry).decide(request)
-    ledger = BudgetLedger(run_dir, run_id)
-    if decision.grant and decision.grant.grant_id in ledger.active_grants():
-        return decision.grant.grant_id
-    ledger.append_request(
-        request,
-        actor_ref="workflow_stage:research_loop",
-        stage_id="research_loop",
-        action_type="stage_start",
-        reason="legacy_research_loop_stage_budget_request",
-    )
-    ledger.append_decision(
-        request,
-        decision,
-        actor_ref=budget_policy_ref,
-        stage_id="research_loop",
-        action_type="stage_start",
-        reason="legacy_research_loop_stage_budget_decision",
-    )
-    trajectory.emit(
-        "budget.requested",
-        scope={"stage_id": "research_loop"},
-        actor={"type": "workflow_stage", "id": "research_loop"},
-        payload={"request_id": request.request_id, "requested": request.requested},
-    )
-    trajectory.emit(
-        "budget.granted" if decision.grant else "budget.review_required",
-        scope={
-            "stage_id": "research_loop",
-            "grant_id": decision.grant.grant_id if decision.grant else "",
-        },
-        actor={"type": "budget_policy", "id": budget_policy_ref},
-        payload={"request_id": request.request_id, "decision": decision.to_dict()},
-    )
-    return decision.grant.grant_id if decision.grant else None
 
 
 def _credential_snapshot(

@@ -539,6 +539,7 @@ def _read_peer_health(
             direction="minimize" if direction == "minimize" else "maximize",
             baselines=baselines,
             scan_result_artifacts=scan_result_artifacts,
+            task_spec=task_spec,
         )
     except Exception:
         return _empty_peer_health(generation)

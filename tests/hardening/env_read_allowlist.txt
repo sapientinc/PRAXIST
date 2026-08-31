@@ -15,6 +15,10 @@
 # ---------------------------------------------------------------------------
 # Boundary: praxist/core
 # ---------------------------------------------------------------------------
+# ``controller_state`` reads the fixed PRAXIST_CONTROLLER_STATE_DIR constant
+# at the private startup/resume authority boundary; task runtime configuration
+# cannot override it, and directory ownership/mode checks protect the authority.
+praxist/core/controller_state.py::<dynamic>
 # ``role_skills`` receives the task path at the subprocess boundary;
 # in-process callers pass task_project_path explicitly.
 praxist/core/role_skills.py::PRAXIST_TASK_PROJECT_PATH

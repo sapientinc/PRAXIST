@@ -12,6 +12,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from praxist.plugins.workflow_stages.research_loop.backend.artifact_semantics import (
+    is_committed_runtime_fact_file,
+)
 from praxist.plugins.workflow_stages.research_loop.backend.evidence_maturity import (
     evidence_maturity_snapshot,
     has_explicit_false_completion,
@@ -24,8 +27,10 @@ from praxist.plugins.workflow_stages.research_loop.backend.findings_collection i
     finding_source_published_after,
     findings_at_boundary_cutoff,
     include_finding_sources_in_snapshot,
+    preserve_scoreless_finding_sources,
     reconcile_result_source_snapshot,
     result_source_snapshot_at_cutoff,
+    scoreless_findings_with_frozen_sources,
 )
 from praxist.plugins.workflow_stages.research_loop.backend.resume_state import (
     BOUNDARY_CHECKPOINT_CUTOFF_KEY,
@@ -33,6 +38,11 @@ from praxist.plugins.workflow_stages.research_loop.backend.resume_state import (
     read_boundary_evidence_checkpoint,
     write_boundary_evidence_checkpoint,
     write_boundary_marker,
+)
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import (
+    is_scoreless,
+    read_scoreless_evidence_manifest,
+    write_scoreless_evidence_manifest,
 )
 
 logger = logging.getLogger(__name__)
@@ -358,6 +368,11 @@ def _generation_stop_audit(loop: Any, *, gen_id: int) -> dict[str, Any]:
         payload.pop(BOUNDARY_CHECKPOINT_SNAPSHOT_KEY, None)
         payload["signal_file"] = str(path.relative_to(run_dir)) if run_dir else str(path)
         payload.setdefault("generation_id", gen_id)
+        if is_scoreless(getattr(loop, "task_spec", None)):
+            payload["mode"] = "scoreless"
+            payload["evidence_status"] = "not_scored"
+            payload["evidence_sufficient"] = None
+            return payload
         if name == "STOP_SIGNAL_POSTGEN" or payload.get("trigger_reason") in {
             "safety_cap",
             "generation_wall_timeout",
@@ -374,6 +389,14 @@ def _generation_stop_audit(loop: Any, *, gen_id: int) -> dict[str, Any]:
         else:
             payload.setdefault("evidence_sufficient", True)
         return payload
+    if is_scoreless(getattr(loop, "task_spec", None)):
+        return {
+            "generation_id": gen_id,
+            "signal_file": "",
+            "mode": "scoreless",
+            "evidence_status": "not_scored",
+            "evidence_sufficient": None,
+        }
     return {"generation_id": gen_id, "signal_file": "", "evidence_sufficient": False}
 
 
@@ -659,6 +682,16 @@ def _generation_peer_mix(
     loop: Any, *, gen_id: int, findings: list[dict[str, Any]]
 ) -> dict[str, Any]:
     task_spec = getattr(loop, "task_spec", None)
+    if is_scoreless(task_spec):
+        return {
+            "mode": "scoreless",
+            "retained_finding_count": len(findings),
+            "contributing_peer_count": len(
+                {str(finding["peer_id"]) for finding in findings if finding.get("peer_id")}
+            ),
+            "evidence_status": "not_scored",
+            "advisory_only": True,
+        }
     evaluation = getattr(task_spec, "evaluation", None)
     gen_policy = getattr(task_spec, "generation_policy", None)
     if not bool(getattr(evaluation, "constructive_peer_mix_enabled", True)):
@@ -768,6 +801,18 @@ async def _complete_generation_boundary(
 ) -> None:
     """Promote findings, update advisory state, and run PI synthesis."""
     run_dir = getattr(loop, "run_dir", None)
+    if (
+        is_scoreless(loop.task_spec)
+        and run_dir is not None
+        and is_committed_runtime_fact_file(
+            Path(run_dir) / f"gen_{gen_id}" / "generation_boundary.json"
+        )
+    ):
+        # A terminal-delivery retry may revisit a completed generation. Its
+        # frozen evidence must not be replaced by newly published source files.
+        if read_scoreless_evidence_manifest(Path(run_dir), gen_id) is None:
+            raise RuntimeError(f"generation {gen_id} frozen scoreless evidence is unavailable")
+        return
     persisted_checkpoint = (
         read_boundary_evidence_checkpoint(Path(run_dir), gen_id) if run_dir is not None else None
     )
@@ -847,6 +892,10 @@ async def _complete_generation_boundary(
                 cutoff=evidence_cutoff,
                 canonical_findings=canonical_findings,
             )
+            if is_scoreless(loop.task_spec):
+                evidence_source_snapshot = preserve_scoreless_finding_sources(
+                    evidence_source_snapshot, run_dir=run_path, cutoff=evidence_cutoff
+                )
         else:
             evidence_cutoff = datetime.now(UTC)
             evidence_source_snapshot = {}
@@ -935,28 +984,47 @@ async def _complete_generation_boundary(
             len(updated),
             len(removed),
         )
-    findings = _annotate_diversity_overlap(
-        loop,
-        gen_id=gen_id,
-        findings=promotion_findings,
-    )
-    observed_findings = (
-        findings
-        if promotion_findings is refreshed_findings
-        else _annotate_diversity_overlap(
+    scoreless = is_scoreless(loop.task_spec)
+    if scoreless:
+        findings = scoreless_findings_with_frozen_sources(
+            evidence_source_snapshot, promotion_findings
+        )
+        observed_findings = refreshed_findings
+        promoted = []
+        if run_dir is not None:
+            write_scoreless_evidence_manifest(
+                Path(run_dir),
+                gen_id=gen_id,
+                findings=findings,
+                evidence_cutoff_at=evidence_cutoff_at,
+                evidence_source_snapshot=evidence_source_snapshot,
+            )
+    else:
+        findings = _annotate_diversity_overlap(
             loop,
             gen_id=gen_id,
-            findings=refreshed_findings,
+            findings=promotion_findings,
         )
-    )
-    promoted = loop.frontier.promote(gen_id, findings)
+        observed_findings = (
+            findings
+            if promotion_findings is refreshed_findings
+            else _annotate_diversity_overlap(
+                loop,
+                gen_id=gen_id,
+                findings=refreshed_findings,
+            )
+        )
+        promoted = loop.frontier.promote(gen_id, findings)
     stop_audit = _generation_stop_audit(loop, gen_id=gen_id)
     peer_mix = _generation_peer_mix(loop, gen_id=gen_id, findings=observed_findings)
-    logger.info(
-        "Generation %d complete: promoted %d findings to frontier",
-        gen_id,
-        len(promoted),
-    )
+    if scoreless:
+        logger.info("Generation %d complete: retained %d unscored findings", gen_id, len(findings))
+    else:
+        logger.info(
+            "Generation %d complete: promoted %d findings to frontier",
+            gen_id,
+            len(promoted),
+        )
 
     rm_cfg_post = getattr(loop.task_spec, "research_memory", None)
     if rm_cfg_post and getattr(rm_cfg_post, "enabled", False):
@@ -975,10 +1043,11 @@ async def _complete_generation_boundary(
 
     _sync_graph_before_next_generation(loop, gen_id=gen_id)
 
-    is_last_gen = gen_id == loop.task_spec.generation_policy.max_generations - 1
+    max_generations = loop.task_spec.generation_policy.max_generations
+    is_last_gen = max_generations is not None and gen_id == max_generations - 1
     gems_result = None
     gems = getattr(loop, "gems", None)
-    if gems is not None and getattr(gems, "enabled", False) and not is_last_gen:
+    if not scoreless and gems is not None and getattr(gems, "enabled", False) and not is_last_gen:
         try:
             with _hold_findings_sync_for_gems(loop) as findings_sync:
                 _sync_findings_locked_once(findings_sync, reason="before Gems reset")
@@ -1007,7 +1076,7 @@ async def _complete_generation_boundary(
             )
             return
 
-    if gems is not None and getattr(gems, "enabled", False) and is_last_gen:
+    if not scoreless and gems is not None and getattr(gems, "enabled", False) and is_last_gen:
         logger.info(
             "gems: terminal generation %d keeps the active frontier unchanged; "
             "no reset is committed without a successor generation",

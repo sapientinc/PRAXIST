@@ -95,7 +95,7 @@ class OrchestratorSnapshot:
     task_id: str
     task_name: str
     current_generation: int
-    max_generations: int
+    max_generations: int | None
     cohort_size: int
     strategy: str
     generations_completed: int

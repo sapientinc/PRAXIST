@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from collections.abc import Callable, Iterator, Mapping
@@ -12,6 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from praxist.core import credentials
+from praxist.core.execution_policy import (
+    apply_task_execution_policy,
+    task_execution_remaining_seconds,
+)
 from praxist.core.protocol import AgentRunRequest, AgentRunResult
 from praxist.core.registry import (
     PluginLoader,
@@ -21,7 +26,7 @@ from praxist.core.registry import (
     require_execution_plugin,
 )
 
-REASONING_EFFORT_POLICIES = frozenset({"auto", "off", "low", "high", "max"})
+REASONING_EFFORT_POLICIES = frozenset({"auto", "off", "low", "high", "max", "xhigh"})
 
 
 def effective_reasoning_effort(runtime_options: Mapping[str, Any] | None) -> str:
@@ -198,9 +203,27 @@ async def execute_runtime(
 
     Production runtimes implement ``execute``. Deterministic fixture plugins
     may keep the smaller synchronous ``execute_sync`` contract used by
-    conformance tests.
+    conformance tests when no task deadline is active. A deadline requires
+    an async ``execute`` implementation that cooperates with cancellation.
     """
 
+    request = apply_task_execution_policy(request)
+    remaining = task_execution_remaining_seconds()
+    if remaining is None:
+        return await _execute_runtime_unbounded(runtime, request, context)
+    # Cancelling to_thread abandons its await without stopping the worker's
+    # tools or file writes. Reject that contract before any runtime side effect.
+    if not inspect.iscoroutinefunction(getattr(runtime, "execute", None)):
+        raise TypeError("Task execution deadlines require an async AgentRuntime.execute() contract")
+    async with asyncio.timeout(remaining):
+        return await _execute_runtime_unbounded(runtime, request, context)
+
+
+async def _execute_runtime_unbounded(
+    runtime: Any,
+    request: AgentRunRequest,
+    context: AgentRuntimeExecutionContext,
+) -> AgentRunResult:
     execute = getattr(runtime, "execute", None)
     if callable(execute):
         result = execute(request, context)
@@ -214,8 +237,6 @@ async def execute_runtime(
     execute_sync = getattr(runtime, "execute_sync", None)
     if not callable(execute_sync):
         raise TypeError("AgentRuntime implements neither execute() nor execute_sync()")
-    import asyncio
-
     result = await asyncio.to_thread(execute_sync, request)
     if not isinstance(result, AgentRunResult):
         raise TypeError("AgentRuntime.execute_sync() did not return AgentRunResult")

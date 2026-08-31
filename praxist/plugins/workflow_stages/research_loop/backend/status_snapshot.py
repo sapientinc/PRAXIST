@@ -8,6 +8,7 @@ import logging
 import math
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from praxist.plugins.workflow_stages.research_loop.backend.orchestrator_status i
     describe_promotion_criteria,
     operator_manifest_paths,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,79 @@ _NON_PROMOTABLE_AUDIT_TAGS = frozenset(
         "protocol_integrity_failed",
     }
 )
+
+
+@dataclass
+class _ScorelessOrchestratorSnapshot(OrchestratorSnapshot):
+    """Keep existing snapshot consumers compatible while declaring selection absent."""
+
+    research_mode: str = "scoreless"
+    selection_status: str = "disabled"
+    evaluation_status: str = "not_configured"
+    retention_policy: str = "all_findings"
+    per_generation_hours: float | None = None
+
+
+def _resource_scheduler_status(run_dir: Path) -> dict[str, Any]:
+    try:
+        scheduler_raw = json.loads(
+            (Path(run_dir) / "resource_scheduler" / "status.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(scheduler_raw, dict):
+        return {}
+    return {
+        key: scheduler_raw.get(key)
+        for key in (
+            "mode",
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "rejected",
+            "concurrency_limit",
+            "admission_closed",
+            "frozen_generations",
+            "worker_error",
+            "queue_blocked_reasons",
+            "accelerator_probe",
+        )
+    }
+
+
+def _scoreless_snapshot(
+    *,
+    run_started_at: str | None,
+    run_dir: Path,
+    task_spec: Any,
+    current_gen: int,
+    gens_completed: int,
+    findings: list[dict[str, Any]],
+) -> OrchestratorSnapshot:
+    started = run_started_at or datetime.now(UTC).isoformat()
+    stop_audit, _ = _last_boundary_control(run_dir, gens_completed)
+    policy = task_spec.generation_policy
+    return _ScorelessOrchestratorSnapshot(
+        run_started_at=started,
+        updated_at=datetime.now(UTC).isoformat(),
+        run_dir=str(run_dir),
+        task_id=task_spec.task_id,
+        task_name=task_spec.task_name,
+        current_generation=current_gen,
+        max_generations=policy.max_generations,
+        per_generation_hours=getattr(policy, "per_generation_hours", None),
+        cohort_size=policy.cohort_size,
+        strategy="scoreless",
+        generations_completed=gens_completed,
+        findings_total=len(findings),
+        operator_manifest_paths=operator_manifest_paths(run_dir),
+        logical_generation=current_gen,
+        gen_promotion_criteria="Scoreless mode: retain all findings; metric selection is disabled.",
+        last_stop_audit=stop_audit,
+        resource_scheduler=_resource_scheduler_status(run_dir),
+        wall_clock_elapsed_seconds=time.time() - datetime.fromisoformat(started).timestamp(),
+    )
 
 
 def _last_boundary_control(
@@ -230,6 +305,15 @@ def build_orchestrator_status_snapshot(
     gems_context: dict[str, Any] | None = None,
 ) -> OrchestratorSnapshot:
     """Compose a thread-safe status snapshot from already-collected state."""
+    if is_scoreless(task_spec):
+        return _scoreless_snapshot(
+            run_started_at=run_started_at,
+            run_dir=run_dir,
+            task_spec=task_spec,
+            current_gen=current_gen,
+            gens_completed=gens_completed,
+            findings=findings,
+        )
     gp = task_spec.generation_policy
     primary = task_spec.evaluation.primary_metric
 
@@ -338,31 +422,7 @@ def build_orchestrator_status_snapshot(
     last_stop_audit, last_peer_mix = _last_boundary_control(run_dir, gens_completed)
     if not bool(getattr(task_spec.evaluation, "constructive_peer_mix_enabled", True)):
         last_peer_mix = {}
-    resource_scheduler: dict[str, Any] = {}
-    try:
-        scheduler_raw = json.loads(
-            (Path(run_dir) / "resource_scheduler" / "status.json").read_text(encoding="utf-8")
-        )
-        if isinstance(scheduler_raw, dict):
-            resource_scheduler = {
-                key: scheduler_raw.get(key)
-                for key in (
-                    "mode",
-                    "queued",
-                    "running",
-                    "completed",
-                    "failed",
-                    "rejected",
-                    "concurrency_limit",
-                    "admission_closed",
-                    "frozen_generations",
-                    "worker_error",
-                    "queue_blocked_reasons",
-                    "accelerator_probe",
-                )
-            }
-    except (OSError, json.JSONDecodeError):
-        pass
+    resource_scheduler = _resource_scheduler_status(run_dir)
     return OrchestratorSnapshot(
         run_started_at=started,
         updated_at=datetime.now(UTC).isoformat(),

@@ -12,19 +12,32 @@ from praxist.core.trajectory import TrajectoryWriter
 from praxist.plugins.workflow_stages.research_loop.backend.artifact_semantics import (
     is_committed_runtime_fact_source,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 from praxist.plugins.workflow_stages.research_loop.c5_materializer import (
     materialize_legacy_c5_views,
+)
+from praxist.plugins.workflow_stages.research_loop.scoreless_materializer import (
+    archive_committed_scoreless_sources,
+    collect_committed_scoreless_sources,
 )
 
 
 def _materialize_legacy_outputs(prepared: Any, result: dict[str, Any]) -> dict[str, int]:
-    findings = _collect_legacy_findings(prepared.run_dir)
-    frontier_summary = _collect_legacy_frontier_summary(prepared.run_dir, result)
-    gems_summary = _collect_legacy_gems(prepared.run_dir, result)
+    scoreless = is_scoreless(prepared.task_spec)
+    snapshots = []
+    if scoreless:
+        findings, snapshots = collect_committed_scoreless_sources(prepared.run_dir, result)
+        frontier_summary = []
+        gems_summary = []
+    else:
+        findings = _collect_legacy_findings(prepared.run_dir)
+        frontier_summary = _collect_legacy_frontier_summary(prepared.run_dir, result)
+        gems_summary = _collect_legacy_gems(prepared.run_dir, result)
     canonical_findings: dict[str, dict[str, Any]] = {}
     agent_events = _legacy_agent_events(prepared.run_dir)
     trajectory = TrajectoryWriter(prepared.run_dir, prepared.run_id)
     artifacts = ArtifactWriter(prepared.run_dir, trajectory)
+    archive_committed_scoreless_sources(artifacts, snapshots)
     finding_artifacts: dict[str, dict[str, Any]] = {}
     for finding in findings:
         finding_id = _finding_id(finding)
@@ -413,6 +426,9 @@ def _canonical_finding_record(
         "legacy_payload": _compact_legacy_payload(finding),
     }
     record["provenance_quality"] = provenance_quality
+    if is_scoreless(prepared.task_spec):
+        record["scores"] = {}
+        record["evidence_status"] = "not_scored"
     if provenance_warning:
         record["provenance_warning"] = provenance_warning
     return record

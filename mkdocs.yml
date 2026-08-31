@@ -110,6 +110,7 @@ nav:
   - Research System:
       - Architecture: concepts/architecture.md
       - Research Loop: guides/research-loop-variant-generation-flow.md
+      - Scoreless Research: guides/scoreless-research.md
       - Flexibility Controls: guides/research-loop-flexibility-controls.md
       - Deep Innovation Gate: guides/deep-innovation-gate.md
       - Quality-Diversity Allocation: guides/qdig-cohort-allocator.md

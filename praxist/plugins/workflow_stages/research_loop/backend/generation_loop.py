@@ -9,16 +9,20 @@ generation with frontier context.
 import logging
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from praxist.core.execution_policy import task_execution_policy_scope
 from praxist.core.role_skills import RoleSkill
 from praxist.core.run_config import DEFAULT_AGENT_MODEL, DEFAULT_WORKSPACE_ROOT
 from praxist.core.tool_servers import (
     DEFAULT_RESEARCH_TOOL_SERVER_REFS,
     build_legacy_mcp_servers,
     peer_mcp_context,
+)
+from praxist.plugins.workflow_stages.research_loop.backend import (
+    task_lifecycle_execution as task_execution,
 )
 from praxist.plugins.workflow_stages.research_loop.backend.baseline_runtime import (
     validate_baseline_cache_for_run,
@@ -83,7 +87,6 @@ from praxist.plugins.workflow_stages.research_loop.backend.resume_state import (
 )
 from praxist.plugins.workflow_stages.research_loop.backend.run_lifecycle import (
     evaluate_run_stop_gate,
-    max_generations_stop_report,
     write_run_stop_report,
 )
 from praxist.plugins.workflow_stages.research_loop.backend.run_report import (
@@ -96,6 +99,7 @@ from praxist.plugins.workflow_stages.research_loop.backend.runtime_environment i
     configure_runtime_environment,
     initialize_local_store_if_needed,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 from praxist.plugins.workflow_stages.research_loop.backend.sidecars import (
     close_sidecars_and_runtime,
     start_sidecars,
@@ -103,6 +107,7 @@ from praxist.plugins.workflow_stages.research_loop.backend.sidecars import (
 from praxist.plugins.workflow_stages.research_loop.backend.status_snapshot import (
     build_orchestrator_status_snapshot,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.task_lifecycle import TaskLifecycle
 from praxist.plugins.workflow_stages.research_loop.lifecycle import ResearchRunLifecycleObserver
 from praxist.plugins.workflow_stages.research_loop.peer_roles import (
     DEFAULT_TOPOLOGY_REF,
@@ -114,6 +119,8 @@ from praxist.plugins.workflow_stages.research_loop.peer_roles import (
 from praxist.task_spec import TaskSpec
 
 logger = logging.getLogger(__name__)
+
+
 _recover_pending_gems_reset_for_resume = recover_pending_gems_reset_for_resume
 _DEFAULT_TOPOLOGY_REF = DEFAULT_TOPOLOGY_REF
 _index_peer_role_skills = index_peer_role_skills
@@ -188,6 +195,8 @@ class GenerationLoop:
         self.resume = bool(resume)
         self.resume_policy = resume_policy
         self.run_lifecycle_observer = run_lifecycle_observer
+        self._task_lifecycle: TaskLifecycle | None = None
+        self._lifecycle_phase = ""
 
         gp = task_spec.generation_policy
 
@@ -228,7 +237,8 @@ class GenerationLoop:
         risk_frontier_cfg = {}
         raw_task_spec = getattr(task_spec, "_raw", {}) or {}
         self.dig_lite_config = DIGLiteConfig.from_raw(
-            raw_task_spec.get("dig_lite") if isinstance(raw_task_spec, dict) else None
+            raw_task_spec.get("dig_lite") if isinstance(raw_task_spec, dict) else None,
+            scoreless=is_scoreless(task_spec),
         )
         self.quality_diversity_config = QualityDiversityConfig.from_task_spec(
             raw_task_spec, dig_config=self.dig_lite_config
@@ -463,10 +473,22 @@ class GenerationLoop:
         return False
 
     async def run(self) -> dict[str, Any]:
-        """Run the full multi-generation loop."""
+        """Run all phases with the startup-resolved task execution policy."""
+        with task_execution_policy_scope(getattr(self.task_spec, "execution_policy", {})):
+            return await self._run_research_loop()
+
+    # Bound delegates preserve the lifecycle entrypoints used by callbacks.
+    _run_lifecycle_agent = task_execution.run_lifecycle_agent
+    _check_task_stop = task_execution.check_task_stop
+    _frozen_findings_through = task_execution.frozen_findings_through
+    _run_task_generation_review = task_execution.run_task_generation_review
+
+    async def _run_research_loop(self) -> dict[str, Any]:
+        """Run research and optional delivery while holding lifecycle authority."""
         gp = self.task_spec.generation_policy
         start_time = time.time()
         resume_plan = None
+        task_delivery: dict[str, Any] | None = None
 
         runtime_scope = enter_orchestrator_runtime_scope(
             run_dir=self.run_dir,
@@ -474,31 +496,13 @@ class GenerationLoop:
             logger=logger,
         )
         try:
-            # UTC keeps elapsed-time math stable across timezone and DST changes.
-            self._run_started_at = datetime.now(UTC).isoformat()
-
-            configure_runtime_environment(
-                task_spec=self.task_spec,
-                run_dir=self.run_dir,
-                findings_dir=self.findings_dir,
-                local_mode=self.local_mode,
-            )
-            initialize_local_store_if_needed(local_mode=self.local_mode)
-            validate_baseline_cache_for_run(
-                task_spec=self.task_spec,
-                workspace=self.workspace,
-                run_dir=self.run_dir,
-            )
-
-            logger.info(
-                f"\n{'#' * 60}\n"
-                f"# Praxist — Generation Loop\n"
-                f"# Task: {self.task_spec.task_name}\n"
-                f"# Generations: {gp.max_generations}\n"
-                f"# Cohort size: {gp.cohort_size}\n"
-                f"# Strategy: {self.frontier_strategy}\n"
-                f"# Mode: {'local' if self.local_mode else 'server'}\n"
-                f"{'#' * 60}"
+            start_time = task_execution.initialize_task_lifecycle(
+                self,
+                start_time,
+                configure_runtime_environment,
+                initialize_local_store_if_needed,
+                validate_baseline_cache_for_run,
+                logger,
             )
 
             if self.resume:
@@ -544,6 +548,7 @@ class GenerationLoop:
                         getattr(mp_cfg, "auto_escalate_to_high_stakes", True),
                     )
                 pi_agent = PIAgent(
+                    task_spec=self.task_spec,
                     run_dir=self.run_dir,
                     workspace=self.workspace,
                     cohort_size=gp.cohort_size,
@@ -568,6 +573,7 @@ class GenerationLoop:
                     ),
                 )
 
+            await task_execution.run_initial_task_phase(self, start_time)
             start_generation = 0
             if self.resume:
                 assert resume_plan is not None
@@ -629,12 +635,13 @@ class GenerationLoop:
                             generation_results=all_results[pending_gen],
                         )
                     else:
-                        await complete_generation_boundary(
+                        await task_execution.complete_boundary_with_deadline(
                             self,
-                            gen_id=pending_gen,
-                            pi_agent=pi_agent,
-                            pi_cfg=pi_cfg,
-                            generation_results=all_results[pending_gen],
+                            pending_gen,
+                            pi_agent,
+                            pi_cfg,
+                            all_results[pending_gen],
+                            complete_generation_boundary,
                         )
                     with self._state_lock:
                         self._generations_completed = max(
@@ -646,24 +653,16 @@ class GenerationLoop:
                 else:
                     start_generation = resume_plan.start_generation
 
-            for gen_id in range(start_generation, gp.max_generations):
-                stop_decision = evaluate_run_stop_gate(
-                    task_spec=self.task_spec,
-                    run_dir=self.run_dir,
-                    run_started_at_seconds=start_time,
-                    next_generation=gen_id,
-                    generations_completed=len(all_results),
+            start_generation = await task_execution.review_completed_generations(
+                self, start_time, len(all_results), start_generation
+            )
+            for gen_id in task_execution.generation_indices(self, start_generation):
+                stop_exit, stop_report = task_execution.check_generation_start(
+                    self, start_time, gen_id, len(all_results)
                 )
-                if stop_decision.should_stop:
-                    run_stop_report = write_run_stop_report(self.run_dir, stop_decision)
-                    exit_condition = stop_decision.exit_condition
-                    logger.info(
-                        "Run lifecycle gate stopped before generation %d: %s",
-                        gen_id,
-                        stop_decision.reason,
-                    )
+                if stop_exit:
+                    exit_condition, run_stop_report = stop_exit, stop_report
                     break
-
                 with self._state_lock:
                     # Round 4 M5 fix: atomize the (current, completed)
                     # pair update. Previously two separate lock
@@ -673,18 +672,22 @@ class GenerationLoop:
                     # both fields are updated together at the start of
                     # each iteration AND together at the end.
                     self._current_generation = gen_id
-                gen_results = await self._run_generation(gen_id)
+                gen_results, deadline_reached = await task_execution.run_generation_with_deadline(
+                    self, gen_id
+                )
                 all_results.append(gen_results)
-                await complete_generation_boundary(
-                    self,
-                    gen_id=gen_id,
-                    pi_agent=pi_agent,
-                    pi_cfg=pi_cfg,
-                    generation_results=gen_results,
+                await task_execution.complete_boundary_with_deadline(
+                    self, gen_id, pi_agent, pi_cfg, gen_results, complete_generation_boundary
                 )
                 with self._state_lock:
                     self._generations_completed = canonical_completed_generation_count(self.run_dir)
                 generate_loop_boundary_report(self, generation_id=gen_id)
+                await task_execution.review_generation_if_enabled(
+                    self, gen_id, start_time, len(all_results)
+                )
+                if deadline_reached:
+                    exit_condition = "research_deadline"
+                    break
 
                 # No plateau check in v2026-05-04 — the run goes the full
                 # max_generations, and the final cohort's frontier is the
@@ -692,14 +695,18 @@ class GenerationLoop:
                 # watched the primary axis; multi-axis frontier progress
                 # was being thrown away.
             else:
-                stop_decision = max_generations_stop_report(
-                    run_dir=self.run_dir,
-                    max_generations=gp.max_generations,
-                    generations_completed=len(all_results),
-                    run_started_at_seconds=start_time,
+                run_stop_report = task_execution.generation_limit_report(
+                    self, start_time, len(all_results)
                 )
-                run_stop_report = write_run_stop_report(self.run_dir, stop_decision)
-                exit_condition = stop_decision.exit_condition
+                exit_condition = str(run_stop_report["exit_condition"])
+            task_delivery = await task_execution.run_final_task_phase(
+                self, start_time, len(all_results)
+            )
+        except task_execution.TaskDeliveryIncomplete as exc:
+            task_delivery = exc.result
+            exit_condition = str(task_delivery.get("exit_condition") or "delivery_incomplete")
+            if isinstance(task_delivery.get("run_stop_report"), dict):
+                run_stop_report = task_delivery["run_stop_report"]
         except (KeyboardInterrupt, SystemExit) as _stop_exc:
             stop_decision = evaluate_run_stop_gate(
                 task_spec=self.task_spec,
@@ -807,13 +814,11 @@ class GenerationLoop:
                 last_gen_promoted_count = len(last_gen_promoted) if last_gen_promoted else 0
             except Exception as e:
                 logger.debug("final summary: last-gen stats failed: %s", e)
-            if last_gen_idx == gp.max_generations - 1:
+            if gp.max_generations is not None and last_gen_idx == gp.max_generations - 1:
                 last_gen_pi_skipped = True
                 last_gen_pi_reason = "is_last_gen (no successor to plan for)"
 
         summary = {
-            "status": "succeeded",
-            "exit_code": 0,
             "task_id": self.task_spec.task_id,
             "task_name": self.task_spec.task_name,
             "generations_completed": committed_generations,
@@ -835,6 +840,7 @@ class GenerationLoop:
             "gems": self.gems.load_state() if self.gems.enabled else {},
         }
 
+        task_execution.add_task_delivery_summary(self, summary, task_delivery)
         write_run_summary(self.run_dir / "run_summary.json", summary)
         generate_loop_boundary_report(self, generation_id=last_gen_idx, final=True)
 

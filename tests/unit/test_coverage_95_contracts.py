@@ -1335,6 +1335,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 run_dir=root / "run",
                 local_mode=True,
                 model="fake",
+                task_project_path=root,
             )
             self.assertEqual(loop._strategy_for_gen(0), "explore")
             self.assertEqual(loop._strategy_for_gen(1), "pi_directed")
@@ -1367,6 +1368,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 run_dir=root / "failed-sidecar-start",
                 local_mode=True,
                 model="fake",
+                task_project_path=root,
             )
             runtime_closed: list[bool] = []
             runtime_scope = SimpleNamespace(close=lambda: runtime_closed.append(True))
@@ -1402,6 +1404,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 run_dir=root / "failed-runtime-setup",
                 local_mode=True,
                 model="fake",
+                task_project_path=root,
             )
             setup_runtime_closed: list[bool] = []
             setup_runtime_scope = SimpleNamespace(close=lambda: setup_runtime_closed.append(True))
@@ -1430,6 +1433,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 run_dir=root / "failed-sidecar-stop",
                 local_mode=True,
                 model="fake",
+                task_project_path=root,
             )
             stop_runtime_closed: list[bool] = []
             stop_runtime_scope = SimpleNamespace(close=lambda: stop_runtime_closed.append(True))
@@ -1630,6 +1634,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 local_mode=True,
                 tool_server_refs=[],
                 resume=True,
+                task_project_path=root,
             )
             resume_plan = SimpleNamespace(
                 completed_generations=0,
@@ -1692,6 +1697,7 @@ class PanelAndLoopCoverage95ContractsTest(unittest.TestCase):
                 run_dir=root / "interrupt-run",
                 local_mode=True,
                 tool_server_refs=[],
+                task_project_path=root,
             )
             with (
                 patch.object(loop, "_run_generation", side_effect=raise_keyboard_interrupt),
@@ -1767,7 +1773,7 @@ class IngestAndToolCoverage95ContractsTest(unittest.TestCase):
 
             unreadable = root / "unreadable.json"
             unreadable.write_text("{}", encoding="utf-8")
-            with patch("builtins.open", side_effect=OSError("read")):
+            with patch.object(findings_ingest, "read_file_bytes", side_effect=OSError("read")):
                 self.assertIsNone(findings_ingest.parse_finding_file(unreadable))
             bad_json = root / "bad.json"
             bad_json.write_text("{bad", encoding="utf-8")

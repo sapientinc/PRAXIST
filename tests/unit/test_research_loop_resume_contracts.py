@@ -277,6 +277,32 @@ class ResearchLoopResumeContractsTest(unittest.TestCase):
             },
         )
 
+    def test_scoreless_manifest_is_a_boundary_source_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            gen_dir = run_dir / "gen_0"
+            gen_dir.mkdir()
+            manifest = gen_dir / "scoreless_evidence.json"
+            manifest.write_text('{"evidence_count": 1}', encoding="utf-8")
+            write_boundary_marker(run_dir, gen_id=0, promoted_count=0, pi_status="disabled")
+            marker = json.loads((gen_dir / "generation_boundary.json").read_text())
+            self.assertEqual(
+                marker["scoreless_evidence_sha256"],
+                hashlib.sha256(manifest.read_bytes()).hexdigest(),
+            )
+            self.assertIn(
+                "gen_0/scoreless_evidence.json",
+                marker["artifact_semantics"]["canonical_sources"],
+            )
+            manifest.unlink()
+            write_boundary_marker(run_dir, gen_id=0, promoted_count=0, pi_status="disabled")
+            marker = json.loads((gen_dir / "generation_boundary.json").read_text())
+            self.assertNotIn("scoreless_evidence_sha256", marker)
+            self.assertNotIn(
+                "gen_0/scoreless_evidence.json",
+                marker["artifact_semantics"]["canonical_sources"],
+            )
+
     def test_boundary_checkpoint_retries_without_overwriting_concurrent_close_signal(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

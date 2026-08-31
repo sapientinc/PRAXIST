@@ -2,6 +2,68 @@
 
 You are in **Generation {{ gen_id }}** of a multi-generation research cycle.
 
+{% if research_loop_mode|default('metric') == 'scoreless' %}
+### Scoreless Research Continuity
+
+This task retains useful research without an evaluated objective or numerical
+competition. Retained findings are context, not proof of correctness or
+validated performance. Preserve their sources, reasoning, uncertainty, and
+contradictions; do not invent an evaluation result to make a finding eligible.
+
+### Retained Evidence from Completed Generations
+
+{% for finding in scoreless_evidence|default([]) %}
+- **{{ finding.title|default('Untitled finding') }}** — `{{ finding.id|default('unknown') }}`
+  - Type: `{{ finding.finding_type|default('unknown') }}`; generation: {{ finding.generation_id|default('?') }}; peer: `{{ finding.peer_id|default('unknown') }}`
+  - Frozen source: `{{ run_dir }}/{{ finding.evidence_manifest|default('') }}`
+  - Evidence: {{ finding.content|default(finding.summary|default(''), true) }}
+{% if finding.content_truncated|default(false) or finding.summary_truncated|default(false) %}
+  - This is a bounded excerpt. Read the exact frozen source when more detail is needed.
+{% endif %}
+{% else %}
+{% if gen_id == 0 %}
+No earlier generation has completed. Begin from the task's question and available sources.
+{% else %}
+No frozen prior evidence is available in this prompt. This does not establish
+that no previous work occurred; inspect the task's retained artifacts when needed.
+{% endif %}
+{% endfor %}
+
+{% if research_agenda is mapping and research_agenda %}
+### PI Research Agenda
+
+{% if research_agenda.full_agenda_path|default('') %}
+Full agenda: `{{ research_agenda.full_agenda_path }}`
+{% endif %}
+{% set contracts = research_agenda.peer_contracts|default({}) %}
+{% set my_contract = contracts.get(peer_id) %}
+{% if my_contract %}
+Your task-specific research contract: {{ my_contract | tojson }}
+{% set description = (peer_role_descriptions|default({})).get(my_contract.role|default('')) %}
+{% if description %}Role description: {{ description }}{% endif %}
+{% else %}
+No peer-specific contract is present. Choose a useful next question from the retained evidence and task instructions.
+{% endif %}
+{% for section in ['mainline_observation', 'cross_peer_hypotheses', 'current_peer_source_context', 'sibling_roster'] %}
+{% if research_agenda.get(section) %}
+- {{ section }}: {{ research_agenda.get(section) | tojson }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if variant_hint|default('') %}
+### Research Direction
+
+{{ variant_hint }}
+{% endif %}
+
+Publish useful work with `mcp__evaluation-tools__share_finding` using the
+appropriate supported type: `hypothesis`, `insight`, `result`, or `error`.
+Include source references and distinguish observations, calculations,
+assumptions, and unresolved questions. A completed research note does not
+establish that its conclusions are correct.
+
+{% else %}
 {% if gems_context is defined and gems_context.enabled and gems_context.gem_seeded_baseline_mode %}
 ### Gem-Seeded Baseline Mode
 
@@ -433,5 +495,6 @@ This is the **first generation** — there is no prior work to build on. Explore
 {{ variant_hint }}
 {% endif %}
 
+{% endif %}
 {% endif %}
 {% endif %}

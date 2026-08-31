@@ -1,3 +1,4 @@
+{%- set scoreless = shared_core_digest.research_loop_mode|default('metric') == 'scoreless' -%}
 You are the **CHAIR ARBITER** of a Multi-PI panel for an autonomous research run.
 
 **Your job**: merge the PI memos into a final research_agenda for the next generation. You do NOT do science; you do allocation.
@@ -25,7 +26,27 @@ The following task-local Chair contract is authoritative for domain-specific all
 {{ shared_core_digest | tojson(indent=2) }}
 ```
 
-{% if shared_core_digest.quality_diversity_policy is defined and shared_core_digest.quality_diversity_policy.enabled %}
+{% if scoreless %}
+## Scoreless agenda synthesis
+
+Use all supplied retained finding types and the PI memos as qualitative evidence.
+Carry forward useful unresolved hypotheses, insights, contradictory observations,
+errors, and source limitations. Retention alone does not establish correctness.
+Preserve exact finding IDs and frozen source references in each derived inquiry.
+Allocate distinct next questions, source checks, calculations, comparisons, and
+falsifiers within the peer budget. Do not invent measured gains or evaluation gates.
+Claim confidence is a judgment, not measured performance or an accuracy estimate.
+
+Keep the existing agenda keys so the next peers can consume the plan. In this mode,
+`promote_condition` means evidence that would justify revisiting a provisional
+claim; `expected_pareto_movement` means the expected qualitative information gain;
+`success_metrics` lists research deliverables, not numerical performance targets.
+Required hypotheses are proposed inquiries, not established facts. Leave lane and
+implementation-parent fields empty unless the task explicitly uses those concepts.
+Preserve dissent and high-value minority inquiries without inventing supporting
+sources. An incomplete source remains incomplete; do not fill gaps with assumptions.
+
+{% else %}{% if shared_core_digest.quality_diversity_policy is defined and shared_core_digest.quality_diversity_policy.enabled %}
 ## Quality-Diversity allocation
 
 Treat the union of PI `proposed_experiments` and `proposed_peer_contracts` as
@@ -146,7 +167,7 @@ configuration and `replication_effective_config_status: matched`. Missing or
 mismatched provenance does not block the experiment or its ordinary evidence;
 it only forbids calling that treatment an exact replication.
 
-{% endif %}## PI memos (anonymized in cross-review; identified here)
+{% endif %}{% endif %}## PI memos (anonymized in cross-review; identified here)
 
 {% for role, memo in pi_memos.items() %}
 {% if memo.get("_pi_unavailable") %}
@@ -222,7 +243,7 @@ Round 1 entries when building the final agenda's
    the audit (every retired/bounded claim must have a path back to active
    status). If the revision is just a confidence downgrade with no
    actionable next step, derive a check from `triggered_by` (e.g. "Sweep
-   the missing baseline X mentioned in the peer objection on Y axis").
+   {{ "the missing source check identified by the peer objection" if scoreless else "the missing baseline X mentioned in the peer objection on Y axis" }}").
    Concrete example: if a revision is
    `{claim_id: "C_g1_03", boundary_old: "works across all operating regimes", boundary_new: "works only in the high-stability regime", confidence_old: 0.8, confidence_new: 0.55, triggered_by: "skeptic objection: missing operating-regime sweep"}`,
    the emitted entry is
@@ -319,16 +340,16 @@ cross_peer_hypotheses:
   - id: H_g{{ next_gen_id }}_01
     claim: "<one paragraph>"
     bottleneck_target: "<task-defined bottleneck label or custom>"
-    evidence_stage: "<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>"
-    tradeoff_class: "<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>"
-    primary_tradeoff: "<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>"
+    evidence_stage: "{{ '<qualitative stage such as open_question|source_check|analysis|synthesis>' if scoreless else '<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>' }}"
+    tradeoff_class: "{{ '<evidence limitation or inquiry type>' if scoreless else '<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>' }}"
+    primary_tradeoff: "{{ '<uncertainty, source coverage, or research effort tradeoff>' if scoreless else '<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>' }}"
     next_step_intent: "<preserve_and_validate|repair_failure_mode|ablate_or_falsify|combine_with_other_mechanism|pivot_to_distinct_surface|archive_negative_result>"
-    parent_candidate: "<variant/finding id if the hypothesis builds on a strong parent, else empty>"
-    parent_usage: "<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>"
+    parent_candidate: "{{ '<empty unless the task defines an implementation parent>' if scoreless else '<variant/finding id if the hypothesis builds on a strong parent, else empty>' }}"
+    parent_usage: "{{ '<empty unless the task defines an implementation parent; cite narrative evidence separately>' if scoreless else '<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>' }}"
     source_findings:
       - finding_id: "<exact id from PI memos / shared core>"
         peer: "<peer_id>"
-        role: "<performance_anchor / robustness_repair_anchor / domain_evidence_anchor / mechanism_donor / etc.>"
+        role: "{{ '<supporting observation / contradiction / unresolved hypothesis / source limitation>' if scoreless else '<performance_anchor / robustness_repair_anchor / domain_evidence_anchor / mechanism_donor / etc.>' }}"
     minimal_test: "<one paragraph>"
     kill_condition: "<criteria>"
     promote_condition: "<criteria>"
@@ -341,12 +362,12 @@ bridge_hypothesis:
   source_anchor_A: {variant: "...", extracted_mechanism: "..."}
   source_anchor_B: {variant: "...", extracted_mechanism: "..."}
   experiment_matrix: ["<combination 1>", "<combination 2>"]
-  expected_pareto_movement: "<one sentence>"
-  coverage_check: "<one sentence: which Pareto axes / mechanism gaps this bridge spans, derived from the PI memos' coverage_matrix references — do NOT call any MCP tool, reason from the supplied memos>"
+  expected_pareto_movement: "{{ '<expected qualitative information gain>' if scoreless else '<one sentence>' }}"
+  coverage_check: "{{ '<which open questions or conflicting explanations this comparison resolves; use only supplied memos>' if scoreless else "<one sentence: which Pareto axes / mechanism gaps this bridge spans, derived from the PI memos' coverage_matrix references — do NOT call any MCP tool, reason from the supplied memos>" }}"
 
 anti_mainline_contract:
   forbidden_mechanisms: ["<at least 3>"]
-  target_axes: ["<which Pareto axes the anti-mainline peer should aim for>"]
+  target_axes: ["{{ '<which alternative explanations the peer should investigate>' if scoreless else '<which Pareto axes the anti-mainline peer should aim for>' }}"]
   seed_findings: ["<finding_id>"]
   success_condition: "<one sentence>"
 
@@ -362,12 +383,12 @@ consensus_actions:
     blocking_objections: []
     assigned_role: exploit
     bottleneck_target: "<task-defined bottleneck label or custom>"
-    evidence_stage: "<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>"
-    tradeoff_class: "<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>"
-    primary_tradeoff: "<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>"
+    evidence_stage: "{{ '<qualitative stage such as open_question|source_check|analysis|synthesis>' if scoreless else '<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>' }}"
+    tradeoff_class: "{{ '<evidence limitation or inquiry type>' if scoreless else '<strong_clean_candidate|strong_but_non_clean_repair_target|benchmark_or_reference_control|reference_like_no_task_edge|specialized_signal_repair_target|robust_low_gain_candidate|domain_signal_behavior_candidate|negative_falsifier|incomplete_evidence|task_defined>' }}"
+    primary_tradeoff: "{{ '<uncertainty, source coverage, or research effort tradeoff>' if scoreless else '<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>' }}"
     next_step_intent: "<preserve_and_validate|repair_failure_mode|ablate_or_falsify|combine_with_other_mechanism|pivot_to_distinct_surface|archive_negative_result>"
-    parent_candidate: "<variant/finding id if the action builds on a strong parent, else empty>"
-    parent_usage: "<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>"
+    parent_candidate: "{{ '<empty unless the task defines an implementation parent>' if scoreless else '<variant/finding id if the action builds on a strong parent, else empty>' }}"
+    parent_usage: "{{ '<empty unless the task defines an implementation parent; cite narrative evidence separately>' if scoreless else '<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>' }}"
     minimal_experiment: "<one sentence>"
     promote_condition: "<criteria>"
     kill_condition: "<criteria>"
@@ -431,12 +452,12 @@ peer_contracts:
     role: {{ _role }}
     target_hypothesis: "<id of hypothesis or contract>"
     bottleneck_target: "<main bottleneck this peer tests>"
-    evidence_stage: "<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>"
+    evidence_stage: "{{ '<qualitative stage such as open_question|source_check|analysis|synthesis>' if scoreless else '<task-defined stage such as smoke|scout|full_eval|replication|promotion_attempt>' }}"
     tradeoff_class: "<expected result tradeoff class>"
-    primary_tradeoff: "<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>"
+    primary_tradeoff: "{{ '<uncertainty, source coverage, or research effort tradeoff>' if scoreless else '<quality_vs_cost|quality_vs_robustness|quality_vs_complexity|evidence_vs_runtime|custom>' }}"
     next_step_intent: "<preserve_and_validate|repair_failure_mode|ablate_or_falsify|combine_with_other_mechanism|pivot_to_distinct_surface|archive_negative_result>"
-    parent_candidate: "<variant/finding id if building on a strong parent, else empty>"
-    parent_usage: "<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>"
+    parent_candidate: "{{ '<empty unless the task defines an implementation parent>' if scoreless else '<variant/finding id if building on a strong parent, else empty>' }}"
+    parent_usage: "{{ '<empty unless the task defines an implementation parent; cite narrative evidence separately>' if scoreless else '<empty/none only when parent_candidate is empty; for validation candidates use validate|complete_validation|complete_scored_validation|repair|falsify|compare|ablate|ablate_or_falsify|ablation_followup|audit; for durable parents preserve is allowed>' }}"
     {% if shared_core_digest.quality_diversity_policy is defined and shared_core_digest.quality_diversity_policy.enabled and shared_core_digest.quality_diversity_policy.diversity_dimensions is defined and shared_core_digest.quality_diversity_policy.diversity_dimensions %}
     # Optional allocation intent only; never evidence of the realized design.
     planned_dimensions:
@@ -447,8 +468,8 @@ peer_contracts:
     forbidden_actions: []
     success_signal: "<one concrete success criterion>"
     source: "<consensus_actions | DISSENT_TO_EXPERIMENT | minority_high_upside>"
-    source_lane: "<optional lane name from shared_core_digest.lane_frontiers or empty>"
-    target_lane: "<optional intended lane to improve/preserve or empty>"
+    source_lane: "{{ '<empty unless task-defined>' if scoreless else '<optional lane name from shared_core_digest.lane_frontiers or empty>' }}"
+    target_lane: "{{ '<empty unless task-defined>' if scoreless else '<optional intended lane to improve/preserve or empty>' }}"
     {% if _role == "bridge" %}
     coverage_check: "<one sentence: which axes/mechanisms this bridge peer will span, derived from the PI memos — do NOT call any MCP tool>"
     {% endif %}
@@ -456,7 +477,11 @@ peer_contracts:
 
 success_metrics:
   required:
-    {% if _topology_roles %}
+    {% if scoreless %}
+    - cite_retained_sources_and_label_uncertainty
+    - investigate_assigned_questions_and_preserve_useful_partial_findings
+    - record_contradictions_and_next_inquiries
+    {% elif _topology_roles %}
     - at_least_1_contract_for_each_topology_role
     - at_least_3_cross_peer_hypotheses_or_actions_tested
     - at_least_1_non_mainline_or_falsification_attempt_completed
@@ -472,4 +497,8 @@ dissent_ledger_ref: "research_memory/dissent_ledger_gen{{ next_gen_id }}.yaml"
 
 **Critical execution instruction**: You have NO tools available. Every input you need is already in this prompt above. **Output the final YAML directly. Do not call any tool. Do not search, do not validate, do not query.** The Chair invariant is "synthesize from the supplied memos + cross_reviews + shared_core_digest only" — your first action should be emitting the YAML document, nothing else.
 
-Begin. You have 25 minutes.
+{% if max_runtime_minutes is defined and max_runtime_minutes is none %}
+Begin. No role-specific runtime limit is configured.
+{% else %}
+Begin. You have {{ max_runtime_minutes|default(25) }} minutes.
+{% endif %}

@@ -65,6 +65,10 @@ from praxist.plugins.workflow_stages.research_loop.backend.research_memory.evide
     _digest_validation_candidates,
     _validation_candidate_aliases_from_manifest,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import (
+    is_scoreless,
+    load_scoreless_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +280,7 @@ class PIAgent:
             - current frontier (from <run_dir>/frontier/)
             - Pareto leaderboard (computed)
             - prior agenda if exists
-      4. PI synthesizes via Claude SDK (single session, max ~15 min).
+      4. PI synthesizes within an optional configured runtime limit.
       5. PI writes `<run_dir>/agendas/research_agenda_gen{N+1}.yaml`.
       6. Orchestrator validates the YAML; if invalid + `strict=False`
          falls back to prior agenda (or no agenda for gen 0→1 transition).
@@ -288,7 +292,7 @@ class PIAgent:
         workspace: Path,
         cohort_size: int,
         model: str,
-        max_runtime_minutes: int = 15,
+        max_runtime_minutes: int | None = 15,
         strict: bool = False,
         store_db_filename: str = "shared_store.db",
         prompt_template_path: Path | None = None,
@@ -337,12 +341,15 @@ class PIAgent:
         # they are planning metadata, never measured evidence.
         diversity_dimensions: list[dict[str, Any]] | None = None,
         reasoning_effort: str = "max",
+        task_spec: Any = None,
     ):
         self.run_dir = Path(run_dir)
         self.workspace = Path(workspace)
         self.cohort_size = int(cohort_size)
         self.model = model
-        self.max_runtime_minutes = int(max_runtime_minutes)
+        self.max_runtime_minutes = (
+            int(max_runtime_minutes) if max_runtime_minutes is not None else None
+        )
         self.strict = bool(strict)
         self.use_multi_pi_panel = bool(use_multi_pi_panel)
         self.multi_pi_config = multi_pi_config
@@ -355,6 +362,7 @@ class PIAgent:
         ]
         self.premium_mode = bool(premium_mode)
         self.reasoning_effort = reasoning_effort
+        self.task_spec = task_spec
         self.task_project_path: Path | None = (
             Path(task_project_path) if task_project_path is not None else None
         )
@@ -389,7 +397,13 @@ class PIAgent:
     # ------------------------------------------------------------------
 
     def _load_gen_findings(self, gen_id: int) -> list[dict[str, Any]]:
-        """Pull all findings for the given gen from SQLite."""
+        """Read this generation's findings, using frozen evidence in scoreless mode."""
+        if is_scoreless(getattr(self, "task_spec", None)):
+            return [
+                finding
+                for finding in load_scoreless_evidence(self.run_dir, gen_id)
+                if finding.get("generation_id") == gen_id
+            ]
         if not self.db_path.exists():
             return []
         try:
@@ -442,6 +456,18 @@ class PIAgent:
 
     def _load_gen_edges(self, gen_id: int) -> list[dict[str, Any]]:
         """Edges where AT LEAST ONE endpoint is a finding from this gen."""
+        scoreless = is_scoreless(getattr(self, "task_spec", None))
+        retained_ids: list[str] = []
+        current_ids: list[str] = []
+        if scoreless:
+            for finding in load_scoreless_evidence(self.run_dir, gen_id):
+                finding_id = str(finding.get("id") or "")
+                if finding_id:
+                    retained_ids.append(finding_id)
+                    if finding.get("generation_id") == gen_id:
+                        current_ids.append(finding_id)
+            if not current_ids:
+                return []
         if not self.db_path.exists():
             return []
         try:
@@ -452,6 +478,27 @@ class PIAgent:
             )
             conn.row_factory = sqlite3.Row
             try:
+                if scoreless:
+                    retained_marks = ",".join("?" for _ in retained_ids)
+                    current_marks = ",".join("?" for _ in current_ids)
+                    # Edges remain advisory; both endpoints must already be
+                    # visible in frozen evidence, never a late-only finding.
+                    cur = conn.execute(
+                        "SELECT e.edge_id, e.src_finding_id, e.dst_finding_id, "
+                        "e.edge_type, e.confidence, e.created_by, e.rationale "
+                        "FROM finding_edges e "
+                        f"WHERE e.src_finding_id IN ({retained_marks}) "
+                        f"AND e.dst_finding_id IN ({retained_marks}) "
+                        f"AND (e.src_finding_id IN ({current_marks}) "
+                        f"OR e.dst_finding_id IN ({current_marks})) "
+                        "ORDER BY e.edge_id LIMIT 100",
+                        (*retained_ids, *retained_ids, *current_ids, *current_ids),
+                    )
+                    edges = [dict(row) for row in cur.fetchall()]
+                    for edge in edges:
+                        if isinstance(edge.get("rationale"), str):
+                            edge["rationale"] = edge["rationale"][:1200]
+                    return edges
                 cur = conn.execute(
                     "SELECT e.edge_id, e.src_finding_id, e.dst_finding_id, "
                     "e.edge_type, e.confidence, e.created_by, e.rationale "
@@ -477,6 +524,8 @@ class PIAgent:
         `generations` (a per-gen-id dict). Use cumulative_top first, then
         flatten generations as a fallback. (R1#2 fix.)
         """
+        if is_scoreless(getattr(self, "task_spec", None)):
+            return []
         manifest = self.run_dir / "frontier" / "frontier_manifest.json"
         if not manifest.exists():
             return []
@@ -560,6 +609,8 @@ class PIAgent:
     def _load_validation_candidates(
         self, completed_gen_id: int | None = None
     ) -> list[dict[str, Any]]:
+        if is_scoreless(getattr(self, "task_spec", None)):
+            return []
         return _digest_validation_candidates(
             self.run_dir,
             max_entries=16,
@@ -567,6 +618,8 @@ class PIAgent:
         )
 
     def _load_validation_candidate_ids(self, completed_gen_id: int | None = None) -> set[str]:
+        if is_scoreless(getattr(self, "task_spec", None)):
+            return set()
         return _validation_candidate_aliases_from_manifest(
             self.run_dir,
             current_gen_id=completed_gen_id,
@@ -869,8 +922,28 @@ class PIAgent:
         each as a one-line dict {gen, id, type, peer, variant, key_metric,
         title}. Lets PI reason about "we tried X at gen 1 and it failed"
         without inflating the prompt past ~150 lines for an 8-gen run.
+        Scoreless mode instead retains bounded narrative context of every
+        finding type from frozen generation manifests.
         """
         out: list[dict[str, Any]] = []
+        if is_scoreless(getattr(self, "task_spec", None)):
+            per_generation: dict[int, int] = {}
+            for finding in load_scoreless_evidence(self.run_dir, completed_gen_id - 1):
+                generation_id = finding["generation_id"]
+                count = per_generation.get(generation_id, 0)
+                if count >= max_per_gen:
+                    continue
+                per_generation[generation_id] = count + 1
+                out.append(
+                    {
+                        **finding,
+                        "gen": generation_id,
+                        "type": finding.get("finding_type"),
+                        "peer": finding.get("peer_id"),
+                        "variant": finding.get("variant_name"),
+                    }
+                )
+            return out
         if not self.db_path.exists():
             return out
         try:
@@ -938,6 +1011,8 @@ class PIAgent:
     def _load_gems_context(self, completed_gen_id: int | None = None) -> dict[str, Any]:
         """Load durable Gems directly for single-PI fallback prompts."""
 
+        if is_scoreless(getattr(self, "task_spec", None)):
+            return {}
         filtered = load_active_gems_for_prompt(
             self.run_dir,
             max_entries=4,
@@ -1280,6 +1355,15 @@ class PIAgent:
         findings_safe = [self._sanitize_json_value(f) for f in findings]
         edges_safe = [self._sanitize_json_value(e) for e in edges]
         return tpl.render(
+            graph_evidence_scope="advisory_edges_between_retained_findings"
+            if is_scoreless(getattr(self, "task_spec", None))
+            else "generation_edges",
+            research_loop_mode="scoreless"
+            if is_scoreless(getattr(self, "task_spec", None))
+            else "metric",
+            scoreless_evidence=load_scoreless_evidence(self.run_dir, completed_gen_id)
+            if is_scoreless(getattr(self, "task_spec", None))
+            else [],
             completed_gen_id=completed_gen_id,
             next_gen_id=completed_gen_id + 1,
             cohort_size=self.cohort_size,
@@ -1362,6 +1446,7 @@ class PIAgent:
 
         agent = BaseAgent(
             name="pi_synthesizer",
+            execution_role="pi",
             allowed_tools=allowed_tools,
             workspace=self.workspace,
             mcp_servers=self.mcp_servers,
@@ -1499,10 +1584,11 @@ class PIAgent:
         cfg = self.multi_pi_config
         panel_mode = getattr(cfg, "panel_mode_default", "full")
         auto_escalate = getattr(cfg, "auto_escalate_to_high_stakes", True)
-        pi_max = getattr(cfg, "pi_max_runtime_minutes", 12)
-        chair_max = getattr(cfg, "chair_max_runtime_minutes", 8)
+        scoreless = is_scoreless(getattr(self, "task_spec", None))
+        pi_max = getattr(cfg, "pi_max_runtime_minutes", None if scoreless else 12)
+        chair_max = getattr(cfg, "chair_max_runtime_minutes", None if scoreless else 8)
         n_rounds = int(getattr(cfg, "n_rounds", 2))
-        r2_max = int(getattr(cfg, "round2_max_runtime_minutes", 6))
+        r2_max = getattr(cfg, "round2_max_runtime_minutes", None if scoreless else 6)
 
         t0 = time.time()
         # Quick findings summary for the pack (counts per type)
@@ -1620,6 +1706,21 @@ class PIAgent:
 
     def _build_findings_summary_for_panel(self, gen_id: int) -> dict[str, Any]:
         """Build a small summary of this-gen findings for the evidence pack."""
+        if is_scoreless(getattr(self, "task_spec", None)):
+            evidence = load_scoreless_evidence(self.run_dir, gen_id)
+            current = [row for row in evidence if row.get("generation_id") == gen_id]
+            by_type: dict[str, int] = {}
+            for finding in current:
+                finding_type = str(finding.get("finding_type") or "unknown")
+                by_type[finding_type] = by_type.get(finding_type, 0) + 1
+            return {
+                "research_loop_mode": "scoreless",
+                "surfaced_findings_count": len(current),
+                "count_scope": "bounded_current_generation_evidence",
+                "by_type": by_type,
+                "scoreless_evidence": evidence,
+                "advisory_graph_edges": self._load_gen_edges(gen_id),
+            }
         if not self.db_path.exists():
             return {}
         try:
@@ -1782,7 +1883,7 @@ class PIAgent:
 
         t0 = time.time()
         logger.info(
-            "PIAgent: starting synthesis (completed_gen=%d, target=gen %d), max_runtime=%d min",
+            "PIAgent: starting synthesis (completed_gen=%d, target=gen %d), max_runtime=%s min",
             completed_gen_id,
             next_gen_id,
             self.max_runtime_minutes,
@@ -1869,14 +1970,16 @@ class PIAgent:
                     candidate_path,
                     request_id=synthesis_request_id,
                 ),
-                timeout=self.max_runtime_minutes * 60,
+                timeout=(
+                    self.max_runtime_minutes * 60 if self.max_runtime_minutes is not None else None
+                ),
             )
         except asyncio.CancelledError:
             _clear_uncommitted_shared_outputs()
             raise
         except TimeoutError:
             logger.error(
-                "PIAgent: hit %d-min timeout; the unconfirmed invocation output "
+                "PIAgent: hit %s-min timeout; the unconfirmed invocation output "
                 "will not be promoted.",
                 self.max_runtime_minutes,
             )

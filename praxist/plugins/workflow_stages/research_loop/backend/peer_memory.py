@@ -13,7 +13,6 @@ import json
 import os
 import re
 import stat
-import uuid
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -23,9 +22,11 @@ from typing import Any
 import yaml
 
 from praxist.core.redaction import JSONValue, redact_json, redact_text
+from praxist.core.storage import atomic_write_bytes, open_append_file, open_readonly_file
 from praxist.plugins.workflow_stages.research_loop.backend.findings_collection import (
     iter_result_summary_paths,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 
 MEMORY_HEADER = "Praxist Peer-Local Structured Memory"
 DEFAULT_MAX_RECENT_EXPERIMENTS = 5
@@ -102,38 +103,7 @@ def _utc_now() -> str:
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    data = text.encode("utf-8")
-    for _ in range(20):
-        tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        fd = -1
-        keep_tmp = False
-        try:
-            fd = os.open(tmp, flags, 0o600)
-            os.write(fd, data)
-            os.fsync(fd)
-            os.close(fd)
-            fd = -1
-            os.replace(tmp, path)
-            keep_tmp = True
-            return
-        except FileExistsError:
-            continue
-        finally:
-            if fd != -1:
-                with suppress(OSError):
-                    os.close(fd)
-            if not keep_tmp:
-                st = None
-                with suppress(OSError):
-                    st = tmp.lstat()
-                if st is not None and not stat.S_ISLNK(st.st_mode):
-                    with suppress(OSError):
-                        tmp.unlink()
-    raise OSError(f"could not create safe temporary file for {path}")
+    atomic_write_bytes(path, text.encode("utf-8"), mode=0o600)
 
 
 def _read_json(
@@ -146,17 +116,11 @@ def _read_json(
         st = path.lstat()
         if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
             return default
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(path, flags)
-        try:
-            opened_st = os.fstat(fd)
+        with open_readonly_file(path) as stream:
+            opened_st = os.fstat(stream.fileno())
             if not stat.S_ISREG(opened_st.st_mode) or opened_st.st_size > max_bytes:
                 return default
-            data = os.read(fd, max_bytes + 1)
-        finally:
-            os.close(fd)
+            data = stream.read(max_bytes + 1)
         if len(data) > max_bytes:
             return default
         return json.loads(data.decode("utf-8", errors="replace"))
@@ -191,7 +155,7 @@ def read_bounded_file_under_root_no_follow(
         return None
     nofollow = os.O_NOFOLLOW
     dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | nofollow
-    file_flags = os.O_RDONLY | nofollow
+    file_flags = os.O_RDONLY | nofollow | os.O_NONBLOCK
     fd = -1
     current_fd = -1
     try:
@@ -207,7 +171,7 @@ def read_bounded_file_under_root_no_follow(
             current_fd = next_fd
         fd = os.open(rel.parts[-1], file_flags, dir_fd=current_fd)
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_size > max_bytes:
+        if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1 or st.st_size > max_bytes:
             return None
         data = os.read(fd, max_bytes + 1)
         if len(data) > max_bytes:
@@ -473,6 +437,7 @@ def collect_peer_memory_health(
     direction: str = "maximize",
     baselines: list[Any] | tuple[Any, ...] | None = None,
     scan_result_artifacts: bool = True,
+    task_spec: Any = None,
 ) -> PeerHealthSnapshot:
     """Return peer-level health derived from peer memory and result summaries.
 
@@ -481,6 +446,8 @@ def collect_peer_memory_health(
     files ad hoc. High-frequency read-only views may skip the recursive result
     reconciliation and rely on the peer-owned ``recent_result_artifacts``
     summary; the default retains the complete status/diagnostic scan.
+    An explicitly scoreless task reports operational session health and marks
+    numerical baseline comparisons as not applicable.
     """
 
     run_dir = Path(run_dir).expanduser().resolve(strict=False)
@@ -493,10 +460,17 @@ def collect_peer_memory_health(
             warnings=["generation directory unavailable"],
         )
 
-    baseline_value = _baseline_threshold(
-        baselines or [],
-        primary_metric=primary_metric,
-        direction=direction,
+    scoreless = is_scoreless(task_spec)
+    if scoreless:
+        primary_metric = ""
+    baseline_value = (
+        None
+        if scoreless
+        else _baseline_threshold(
+            baselines or [],
+            primary_metric=primary_metric,
+            direction=direction,
+        )
     )
     peer_roots = _safe_peer_roots(gen_dir)
     scanned_by_peer = (
@@ -506,7 +480,7 @@ def collect_peer_memory_health(
             generation_id=resolved_generation,
             primary_metric=primary_metric,
         )
-        if scan_result_artifacts and peer_roots
+        if scan_result_artifacts and peer_roots and not scoreless
         else {}
     )
     peers: list[PeerHealthStatus] = []
@@ -520,6 +494,7 @@ def collect_peer_memory_health(
             direction=direction,
             baseline_value=baseline_value,
             result_artifacts=scanned_by_peer.get(peer_root.name, []),
+            scoreless=scoreless,
         )
         peers.append(peer)
     peers.sort(key=lambda peer: peer.peer_id)
@@ -610,6 +585,7 @@ def _collect_one_peer_health(
     direction: str,
     baseline_value: float | None,
     result_artifacts: list[dict[str, Any]],
+    scoreless: bool = False,
 ) -> PeerHealthStatus:
     peer_id = peer_root.name
     memory_dir = peer_root / "memory"
@@ -617,8 +593,9 @@ def _collect_one_peer_health(
     ledger_rows, ledger_warning = _read_recent_ledger(
         memory_dir / "experiment_ledger.jsonl", run_dir
     )
-    artifacts = list(result_artifacts)
-    artifacts.extend(_state_result_artifacts(state, primary_metric=primary_metric))
+    artifacts = [] if scoreless else list(result_artifacts)
+    if not scoreless:
+        artifacts.extend(_state_result_artifacts(state, primary_metric=primary_metric))
     best_value = _best_metric_value(
         [artifact.get("metric_value") for artifact in artifacts],
         direction=direction,
@@ -641,16 +618,21 @@ def _collect_one_peer_health(
 
     research_state = _redact_for_memory(state.get("research_state", ""))
     active_variant = _redact_for_memory(state.get("active_variant", "")) or best_variant
-    baseline_status = _baseline_status(
-        best_metric_value=best_value,
-        baseline_value=baseline_value,
-        direction=direction,
+    baseline_status = (
+        "not_applicable"
+        if scoreless
+        else _baseline_status(
+            best_metric_value=best_value,
+            baseline_value=baseline_value,
+            direction=direction,
+        )
     )
     health, reason = _peer_health_level(
         state_error=state_error,
         state=state,
         last_session_success=last_success,
         baseline_status=baseline_status,
+        scoreless=scoreless,
     )
     return PeerHealthStatus(
         peer_id=peer_id,
@@ -912,6 +894,7 @@ def _peer_health_level(
     state: dict[str, Any],
     last_session_success: bool | None,
     baseline_status: str,
+    scoreless: bool = False,
 ) -> tuple[str, str]:
     if state_error:
         return PEER_HEALTH_RED, state_error
@@ -922,6 +905,10 @@ def _peer_health_level(
     research_state = str(state.get("research_state", "")).strip().lower()
     if any(token in research_state for token in ("fail", "error", "blocked", "fault")):
         return PEER_HEALTH_RED, f"research_state={research_state}"
+    if scoreless:
+        if last_session_success is True:
+            return PEER_HEALTH_GREEN, "last session completed; research quality not evaluated"
+        return PEER_HEALTH_YELLOW, "no completed session recorded; research quality not evaluated"
     if baseline_status == "reached_baseline":
         return PEER_HEALTH_GREEN, "baseline reached"
     if baseline_status == "below_baseline":
@@ -943,6 +930,7 @@ class PeerSessionMemory:
         generation_id: int,
         findings_dir: Path,
         config: PeerMemoryConfig | None = None,
+        task_spec: Any = None,
     ) -> None:
         self._declared_run_dir = Path(run_dir).expanduser()
         self.run_dir = self._declared_run_dir.resolve(strict=False)
@@ -952,6 +940,7 @@ class PeerSessionMemory:
         self.generation_id = generation_id
         self.findings_dir = Path(findings_dir).expanduser()
         self.config = config or PeerMemoryConfig()
+        self.task_spec = task_spec
         self.peers_root = self.gen_dir / "peers"
         self.peer_root = self.peers_root / self.safe_peer_id
         self.memory_dir = self.peer_root / "memory"
@@ -1025,19 +1014,11 @@ class PeerSessionMemory:
     def _open_existing_file_no_follow(self, path: Path, root: Path) -> int | None:
         if not self._safe_existing_file(path, root):
             return None
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
         try:
-            fd = os.open(path, flags)
-            st = os.fstat(fd)
+            with open_readonly_file(path) as stream:
+                return os.dup(stream.fileno())
         except OSError:
             return None
-        if not stat.S_ISREG(st.st_mode):
-            with suppress(OSError):
-                os.close(fd)
-            return None
-        return fd
 
     def _read_existing_file_no_follow(
         self,
@@ -1094,20 +1075,10 @@ class PeerSessionMemory:
 
     def _append_memory_text(self, path: Path, text: str) -> None:
         self._assert_safe_write_target(path)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = -1
-        try:
-            fd = os.open(path, flags, 0o600)
-            st = os.fstat(fd)
-            if not stat.S_ISREG(st.st_mode):
-                raise OSError(f"unsafe peer memory file: {path}")
-            os.write(fd, text.encode("utf-8"))
-        finally:
-            if fd != -1:
-                with suppress(OSError):
-                    os.close(fd)
+        with open_append_file(path, mode=0o600) as stream:
+            stream.write(text.encode("utf-8"))
+            stream.flush()
+            os.fsync(stream.fileno())
 
     def _read_memory_text(
         self,
@@ -1300,6 +1271,8 @@ class PeerSessionMemory:
                     f"- `{safe_item['finding_id']}` type={finding_type or 'unknown'} "
                     f"producer={producer or 'unknown'}: {title}"
                 )
+                if is_scoreless(self.task_spec) and safe_item.get("content"):
+                    finding_line += "\n  Evidence: " + _shorten(safe_item["content"], limit=1200)
                 lines.append(finding_line)
                 raw_seen_keys = item.get("_seen_keys")
                 seen_keys = (
@@ -1412,6 +1385,8 @@ class PeerSessionMemory:
         state["last_session_summary"] = summary
         if error_text:
             state["last_error"] = error_text
+        elif success and is_scoreless(self.task_spec):
+            state.pop("last_error", None)
         latest_artifacts = self._scan_recent_result_artifacts()
         if latest_artifacts:
             state["recent_result_artifacts"] = _redact_value(
@@ -1614,6 +1589,11 @@ class PeerSessionMemory:
                         "title": payload.get("title") or payload.get("summary"),
                         "finding_type": payload.get("finding_type") or payload.get("type"),
                         "producer_ref": payload.get("producer_ref") or payload.get("producer"),
+                        **(
+                            {"content": _redact_for_memory(payload.get("content"), limit=1200)}
+                            if is_scoreless(self.task_spec)
+                            else {}
+                        ),
                         "_seen_keys": seen_keys_to_record,
                     },
                 )

@@ -185,6 +185,7 @@ class TextMonitorRenderer:
             f"{_display(orch.get('gems_count'), '-')} gems"
         )
         lines.append(f"- phase: {snapshot.phase}")
+        lines.extend(f"- {line}" for line in _scoreless_limit_lines(orch))
         lines.append(f"- updated_at: {_display(orch.get('updated_at'), row.updated_at)}")
         blocker = str(orch.get("gen_promotion_blocker") or "").strip()
         if blocker:
@@ -209,9 +210,12 @@ class TextMonitorRenderer:
         stop_audit = orch.get("last_stop_audit")
         if isinstance(stop_audit, dict) and stop_audit:
             reason = stop_audit.get("trigger_reason") or stop_audit.get("signal_file")
-            mature = stop_audit.get("mature_result_peers")
-            required = stop_audit.get("required_mature_result_peers")
-            lines.append(f"- last_stop: {reason or '-'} mature={mature or 0}/{required or 0}")
+            if stop_audit.get("mode") == "scoreless":
+                lines.append(f"- last_stop: {reason or '-'} maturity=not_scored")
+            else:
+                mature = stop_audit.get("mature_result_peers")
+                required = stop_audit.get("required_mature_result_peers")
+                lines.append(f"- last_stop: {reason or '-'} mature={mature or 0}/{required or 0}")
         return lines
 
     def _render_peers(self, row: status.StatusRow) -> list[str]:
@@ -620,6 +624,7 @@ class TuiMonitorRenderer:
             f"{_display(orch.get('frontier_candidates'), '-')} / "
             f"{_display(orch.get('gems_count'), '-')}",
         ]
+        lines.extend(_scoreless_limit_lines(orch))
         mature = _result_summary(orch.get("best_mature_result"))
         if mature:
             lines.append(f"best_mature: {mature}")
@@ -656,9 +661,12 @@ class TuiMonitorRenderer:
         stop_audit = orch.get("last_stop_audit")
         if isinstance(stop_audit, dict) and stop_audit:
             reason = stop_audit.get("trigger_reason") or stop_audit.get("signal_file")
-            mature = stop_audit.get("mature_result_peers")
-            required = stop_audit.get("required_mature_result_peers")
-            lines.append(f"last_stop: {reason or '-'} mature={mature or 0}/{required or 0}")
+            if stop_audit.get("mode") == "scoreless":
+                lines.append(f"last_stop: {reason or '-'} maturity=not_scored")
+            else:
+                mature = stop_audit.get("mature_result_peers")
+                required = stop_audit.get("required_mature_result_peers")
+                lines.append(f"last_stop: {reason or '-'} mature={mature or 0}/{required or 0}")
         return lines
 
     def _peer_lines(
@@ -1824,6 +1832,19 @@ def _format_kib(value: int) -> str:
     if mib >= 1024:
         return f"{mib / 1024.0:.1f} GiB"
     return f"{mib:.0f} MiB"
+
+
+def _scoreless_limit_lines(orch: dict[str, Any]) -> list[str]:
+    if orch.get("research_mode") != "scoreless":
+        return []
+    return [
+        f"{label}: {'unbounded' if orch[key] is None else orch[key]}"
+        for key, label in (
+            ("max_generations", "generation_limit"),
+            ("per_generation_hours", "per_generation_hours"),
+        )
+        if key in orch
+    ]
 
 
 def _format_peer_health(summary: dict[str, int] | None) -> str:

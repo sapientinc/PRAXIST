@@ -231,6 +231,8 @@ class BudgetLedger:
                 )
             if unit not in approved:
                 raise ValueError(f"Budget usage unit not approved by grant {grant_id}: {unit}")
+            if approved[unit] is None:
+                continue
             approved_amount = float(approved[unit])
             new_total = float(totals.get(unit, 0.0)) + amount
             if new_total > approved_amount:
@@ -296,6 +298,8 @@ def _validate_budget_amounts(values: dict[str, Any], label: str) -> None:
     for unit, raw_value in values.items():
         if unit not in ALLOWED_BUDGET_UNITS:
             raise ValueError(f"Budget {label} has unsupported unit: {unit}")
+        if raw_value is None:
+            continue
         try:
             value = float(raw_value)
         except (TypeError, ValueError) as exc:

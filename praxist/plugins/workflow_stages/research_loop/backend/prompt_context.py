@@ -25,6 +25,10 @@ from praxist.plugins.workflow_stages.research_loop.backend.frontier import (
 from praxist.plugins.workflow_stages.research_loop.backend.prompt_strategy import (
     _generate_variant_hint,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import (
+    is_scoreless,
+    load_scoreless_evidence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1042,40 +1046,62 @@ def build_prompt_context(
     diversity_dimensions = getattr(task_spec.evaluation, "diversity_dimensions", None) or None
     must_explore_axes = getattr(task_spec.evaluation, "must_explore_axes", None) or None
     effective_gen_id = gen_id if logical_gen_id is None else int(logical_gen_id)
-    frontier_summary = _frontier_summary_up_to_generation(frontier, gen_id - 1)
-    parent_frontier_summary = _parent_frontier_summary_up_to_generation(frontier, gen_id - 1)
-    hint_frontier_summary = (
-        parent_frontier_summary if strategy in {"exploit", "mixed"} else frontier_summary
-    )
-    variant_hint = _generate_variant_hint(
-        effective_gen_id,
-        peer_index,
-        cohort_size,
-        strategy,
-        frontier,
-        diversity_dimensions=diversity_dimensions,
-        must_explore_axes=must_explore_axes,
-        frontier_summary=hint_frontier_summary,
-    )
+    scoreless = is_scoreless(task_spec)
+    if scoreless:
+        parent_frontier_summary = []
+        variant_hint = (
+            "Build on the retained evidence and assigned research question. "
+            "Record sources, uncertainty, contradictory evidence, and useful next steps. "
+            "Retained findings are research context, not validated performance."
+        )
+    else:
+        frontier_summary = _frontier_summary_up_to_generation(frontier, gen_id - 1)
+        parent_frontier_summary = _parent_frontier_summary_up_to_generation(frontier, gen_id - 1)
+        hint_frontier_summary = (
+            parent_frontier_summary if strategy in {"exploit", "mixed"} else frontier_summary
+        )
+        variant_hint = _generate_variant_hint(
+            effective_gen_id,
+            peer_index,
+            cohort_size,
+            strategy,
+            frontier,
+            diversity_dimensions=diversity_dimensions,
+            must_explore_axes=must_explore_axes,
+            frontier_summary=hint_frontier_summary,
+        )
 
     peer_id = f"gen{gen_id}_peer{peer_index}"
     prompt_frontier_summary = _compact_frontier_summary_for_prompt(
         parent_frontier_summary,
         task_spec,
     )
-    validation_candidates, validation_candidates_meta = _validation_signals_for_prompt(
-        run_dir,
-        completed_gen_id=gen_id - 1,
-    )
-    strong_parent_views = _strong_parent_views_for_prompt(
-        frontier=frontier,
-        validation_candidates=validation_candidates,
-        task_spec=task_spec,
-        completed_gen_id=gen_id - 1,
-    )
-    research_loop_control = _last_boundary_control_for_prompt(
-        run_dir,
-        completed_gen_id=gen_id - 1,
+    if scoreless:
+        validation_candidates, validation_candidates_meta = [], {}
+        strong_parent_views = {
+            "incubator_top_k": [],
+            "validation_candidate_top_k": [],
+            "diagnostic_control_top_k": [],
+            "policy": {},
+        }
+    else:
+        validation_candidates, validation_candidates_meta = _validation_signals_for_prompt(
+            run_dir,
+            completed_gen_id=gen_id - 1,
+        )
+        strong_parent_views = _strong_parent_views_for_prompt(
+            frontier=frontier,
+            validation_candidates=validation_candidates,
+            task_spec=task_spec,
+            completed_gen_id=gen_id - 1,
+        )
+    research_loop_control = (
+        {}
+        if scoreless
+        else _last_boundary_control_for_prompt(
+            run_dir,
+            completed_gen_id=gen_id - 1,
+        )
     )
     if not bool(getattr(task_spec.evaluation, "constructive_peer_mix_enabled", True)):
         research_loop_control.pop("peer_mix", None)
@@ -1103,9 +1129,9 @@ def build_prompt_context(
         )
         if research_agenda is None and gen_id > 0:
             logger.warning(
-                "no research_agenda for gen %d — peers will fall back to "
-                "frontier-driven free-explore mode",
+                "no research_agenda for gen %d — peers will fall back to %s",
                 gen_id,
+                "evidence-driven research" if scoreless else "frontier-driven free-explore mode",
             )
     except Exception as e:  # noqa: BLE001 - prompt template handles missing agenda.
         logger.debug("research_agenda load failed for gen %d: %s", gen_id, e)
@@ -1142,7 +1168,7 @@ def build_prompt_context(
         full_agenda_path=str(run_dir / "agendas" / f"research_agenda_gen{gen_id}.yaml"),
     )
     agent_system = _agent_system_from_runtime_ref(runtime_ref)
-    rendered_gems_context = gems_context or {}
+    rendered_gems_context = {} if scoreless else (gems_context or {})
 
     return {
         "peer_id": peer_id,
@@ -1153,8 +1179,13 @@ def build_prompt_context(
         "run_dir": str(run_dir),
         "results_dir": str(results_dir),
         "variants_dir": str(variants_dir),
-        "notebook_path": str(run_dir / f"notebook_{peer_id}.json"),
+        "notebook_path": str(
+            (run_dir / "work" / "notebooks" if scoreless else run_dir) / f"notebook_{peer_id}.json"
+        ),
+        **({"notebook_dir": str(run_dir / "work" / "notebooks")} if scoreless else {}),
         "task_spec": task_spec,
+        "research_loop_mode": "scoreless" if scoreless else "metric",
+        "scoreless_evidence": load_scoreless_evidence(run_dir, gen_id - 1) if scoreless else [],
         "frontier_summary": prompt_frontier_summary,
         "validation_candidates": validation_candidates,
         "validation_candidates_meta": validation_candidates_meta,

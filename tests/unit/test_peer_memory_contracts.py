@@ -637,6 +637,96 @@ class PeerMemoryContractsTest(unittest.TestCase):
             self.assertTrue((memory.memory_dir / "peer_state.yaml").exists())
             self.assertTrue(legacy_tmp.is_symlink())
 
+    def test_memory_writes_reject_directory_swap_after_validation(self) -> None:
+        from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
+            PeerSessionMemory,
+        )
+
+        for operation in ("replace", "append"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                run_dir = root / "run"
+                memory = PeerSessionMemory(
+                    run_dir=run_dir,
+                    gen_dir=run_dir / "gen_0",
+                    peer_id="gen0_peer0",
+                    generation_id=0,
+                    findings_dir=run_dir / "shared_findings",
+                )
+                memory.initialize()
+                memory.peers_root.chmod(0o777)
+                destination = memory.state_path if operation == "replace" else memory.ledger_path
+                outside = root / "outside"
+                outside_memory = outside / "memory"
+                outside_memory.mkdir(parents=True)
+                outside_file = outside_memory / destination.name
+                original = b"outside authority must remain unchanged\n"
+                outside_file.write_bytes(original)
+                validate = memory._assert_safe_write_target
+
+                def swap_directory(
+                    path: Path,
+                    *,
+                    original_validate=validate,
+                    peer_memory=memory,
+                    outside_dir=outside,
+                ) -> None:
+                    original_validate(path)
+                    peer_memory.peer_root.rename(peer_memory.peers_root / "original_peer")
+                    peer_memory.peer_root.symlink_to(outside_dir, target_is_directory=True)
+
+                writer = (
+                    memory._write_memory_text
+                    if operation == "replace"
+                    else memory._append_memory_text
+                )
+                with (
+                    patch.dict(os.environ, {"PRAXIST_CONTROLLER_STATE_DIR": str(root / "control")}),
+                    patch.object(memory, "_assert_safe_write_target", side_effect=swap_directory),
+                    self.assertRaises(OSError),
+                ):
+                    try:
+                        writer(destination, "untrusted redirected write\n")
+                    finally:
+                        self.assertEqual(outside_file.read_bytes(), original)
+
+    def test_memory_reads_reject_directory_swap_after_validation(self) -> None:
+        from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
+            PeerSessionMemory,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            run_dir = root / "run"
+            memory = PeerSessionMemory(
+                run_dir=run_dir,
+                gen_dir=run_dir / "gen_0",
+                peer_id="gen0_peer0",
+                generation_id=0,
+                findings_dir=run_dir / "shared_findings",
+            )
+            memory.initialize()
+            memory.peers_root.chmod(0o777)
+            outside = root / "outside"
+            outside_memory = outside / "memory"
+            outside_memory.mkdir(parents=True)
+            (outside_memory / memory.state_path.name).write_text(
+                "private fixture content", encoding="utf-8"
+            )
+            validate = memory._safe_existing_file
+
+            def swap_after_validation(path, allowed_root):
+                valid = validate(path, allowed_root)
+                memory.peer_root.rename(memory.peers_root / "original_peer")
+                memory.peer_root.symlink_to(outside, target_is_directory=True)
+                return valid
+
+            with (
+                patch.dict(os.environ, {"PRAXIST_CONTROLLER_STATE_DIR": str(root / "control")}),
+                patch.object(memory, "_safe_existing_file", side_effect=swap_after_validation),
+            ):
+                self.assertEqual(memory._read_memory_text(memory.state_path), "")
+
     def test_memory_reads_handoff_with_bounded_tail(self) -> None:
         from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
             DEFAULT_MAX_HANDOFF_BYTES,

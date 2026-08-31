@@ -187,7 +187,7 @@ class CodexSdkRuntime:
         self._notify(context, collector.events[0])
         deadline = (
             asyncio.get_running_loop().time() + request.timeout_seconds
-            if request.timeout_seconds > 0
+            if request.timeout_seconds is not None and request.timeout_seconds > 0
             else None
         )
         if _stop_requested(context):
@@ -235,6 +235,14 @@ class CodexSdkRuntime:
                     else None
                 ),
                 denied_tools=request.tool_permissions.denied_tools,
+                tool_execution_timeout_seconds=request.runtime_options.get(
+                    "tool_execution_timeout_seconds"
+                ),
+                isolated_python=bool(
+                    sandbox.permission_profile is not None
+                    or request.runtime_options.get("require_task_sandbox_policy")
+                    or request.runtime_options.get("require_task_tool_policy")
+                ),
             )
             for warning in mcp.warnings:
                 logger.warning("Codex SDK runtime: %s", warning)
@@ -254,6 +262,13 @@ class CodexSdkRuntime:
             await self._await_controlled(stream_slots.acquire(), context, deadline)
             slot_acquired = True
             rpc_started = True
+            # A legacy sandbox argument overrides named permission profiles,
+            # including their explicit read-deny rules.
+            sandbox_kwargs = (
+                {}
+                if sandbox.permission_profile is not None
+                else {"sandbox": getattr(sdk["Sandbox"], sandbox.sandbox)}
+            )
             thread = await self._await_controlled(
                 self._call_resource(
                     entry.client.thread_start,
@@ -265,8 +280,8 @@ class CodexSdkRuntime:
                     ephemeral=True,
                     model=_runtime_model(request),
                     model_provider=entry.provider_id,
-                    sandbox=getattr(sdk["Sandbox"], sandbox.sandbox),
                     service_name="praxist",
+                    **sandbox_kwargs,
                 ),
                 context,
                 deadline,
@@ -998,7 +1013,7 @@ def _reasoning_effort(
         return effort_type.none
     if policy in {"low", "high"}:
         return getattr(effort_type, policy)
-    if policy == "max":
+    if policy in {"max", "xhigh"}:
         return effort_type.xhigh
     if _uses_chatgpt_subscription(request, env):
         return effort_type.medium

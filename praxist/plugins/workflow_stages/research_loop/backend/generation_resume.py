@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 def prepare_resume_for_sidecars(
     run_dir: Path,
     *,
-    max_generations: int,
+    max_generations: int | None,
     pi_enabled: bool,
     policy: str,
 ) -> ResumePlan:
@@ -46,7 +46,9 @@ def prepare_resume_for_sidecars(
         pi_enabled=pi_enabled,
         policy=policy,
     )
-    if not plan.has_pending_boundary and plan.start_generation < max_generations:
+    if not plan.has_pending_boundary and (
+        max_generations is None or plan.start_generation < max_generations
+    ):
         gen_dir = Path(run_dir) / f"gen_{plan.start_generation}"
         if gen_dir.exists():
             clear_generation_runtime_signals(gen_dir)
@@ -75,10 +77,26 @@ def _discard_abandoned_boundary_checkpoint(loop: Any, gen_id: int) -> None:
     _clear_boundary_evidence_cutoff(loop, gen_id=gen_id)
 
 
-def prime_resume_boundary_evidence_cutoff(loop: Any, *, max_generations: int) -> None:
+def _checkpoint_generation_ids(run_dir: Path, max_generations: int | None) -> range | list[int]:
+    if max_generations is not None:
+        return range(max(0, int(max_generations)))
+    # Sparse checkpoints can outlive an incomplete prefix. Scan actual directories
+    # in numeric order so the latest generation's cutoff remains active.
+    generations = []
+    for directory in Path(run_dir).glob("gen_*"):
+        suffix = directory.name.removeprefix("gen_")
+        if not suffix.isascii() or not suffix.isdecimal() or not directory.is_dir():
+            continue
+        generation = int(suffix)
+        if directory.name == f"gen_{generation}":
+            generations.append(generation)
+    return sorted(generations)
+
+
+def prime_resume_boundary_evidence_cutoff(loop: Any, *, max_generations: int | None) -> None:
     """Restore the newest uncommitted cutoff before the first sidecar sync."""
 
-    for gen_id in range(max(0, int(max_generations))):
+    for gen_id in _checkpoint_generation_ids(loop.run_dir, max_generations):
         marker = loop.run_dir / f"gen_{gen_id}" / BOUNDARY_MARKER_FILENAME
         checkpoint = (
             None if marker.exists() else read_boundary_evidence_checkpoint(loop.run_dir, gen_id)
@@ -99,13 +117,13 @@ def prime_resume_boundary_evidence_cutoff(loop: Any, *, max_generations: int) ->
 def repair_inferred_boundaries_for_resume(
     loop: Any,
     *,
-    max_generations: int,
+    max_generations: int | None,
     pi_enabled: bool,
 ) -> list[dict[str, Any]]:
     """Reclassify checkpointed evidence before inferred markers commit."""
 
     checkpointed: list[int] = []
-    for gen_id in range(max(0, int(max_generations))):
+    for gen_id in _checkpoint_generation_ids(loop.run_dir, max_generations):
         marker = loop.run_dir / f"gen_{gen_id}" / BOUNDARY_MARKER_FILENAME
         checkpoint = (
             None if marker.exists() else read_boundary_evidence_checkpoint(loop.run_dir, gen_id)

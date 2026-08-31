@@ -13,6 +13,7 @@ import traceback
 import uuid
 from collections.abc import Callable
 from contextlib import suppress
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -27,13 +28,16 @@ from praxist.config import (
 )
 from praxist.core.cache import build_cache_policy
 from praxist.core.credentials import CredentialRef, provider_name_from_ref
+from praxist.core.execution_policy import apply_task_execution_policy
 from praxist.core.modeling import default_model_profile
 from praxist.core.prompt_layout import (
+    DEFAULT_START_COMMAND,
     build_legacy_jinja_prompt_layout,
     write_prompt_layout_files,
 )
 from praxist.core.protocol import (
     AgentRunRequest,
+    AgentRunResult,
     CachePolicy,
     EnvPolicy,
     JSONValue,
@@ -81,6 +85,8 @@ from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
     PeerSessionMemory,
     read_bounded_file_under_root_no_follow,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
+from praxist.plugins.workflow_stages.research_loop.backend.tools.atomic_io import atomic_write_json
 from praxist.plugins.workflow_stages.research_loop.provider_env import (
     DEEPSEEK_CLAUDE_DEFAULT_EFFORT,
     DEEPSEEK_CLAUDE_DEFAULT_HAIKU_MODEL,
@@ -103,6 +109,13 @@ Your previous response waited for a human instruction instead of executing the
 Praxist research task. Begin now. Do not ask what to do. Use tools immediately:
 read your peer notebook, inspect shared findings, query the frontier, and then
 continue the research workflow."""
+
+_SCORELESS_BOOTSTRAP_RETRY_DIRECTIVE = """# Praxist Bootstrap Recovery
+
+Your previous response waited for a human instruction instead of executing the
+Praxist research task. Begin now. Do not ask what to do. Use tools immediately:
+read the assigned task, your peer notebook, and prior retained findings, then
+continue your assigned research and retain useful evidence."""
 
 _BOOTSTRAP_WAIT_PATTERNS = (
     "what would you like me to do",
@@ -173,8 +186,14 @@ def resolve_prompt_with_layout(
     rendered_prompt_ref: dict[str, Any] | None = None,
     prompt_id: str | None = None,
     extra_dynamic_blocks: list[dict[str, Any]] | None = None,
+    start_command_text: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Render prompt text and write a PromptLayout V1 manifest."""
+    """Render prompt text and write a PromptLayout V1 manifest.
+
+    Args:
+        start_command_text: Optional session navigation command. ``None``
+            preserves the default metric research navigation.
+    """
     run_id = os.environ.get("PRAXIST_RUN_ID", "legacy_direct")
     layout = build_legacy_jinja_prompt_layout(
         base_template_path=base_template_path,
@@ -188,6 +207,9 @@ def resolve_prompt_with_layout(
         model_provider_ref=os.environ.get("PRAXIST_MODEL_PROVIDER_REF", ""),
         repo_root=Path(os.environ.get("PRAXIST_WORKSPACE_ROOT", os.getcwd())),
         extra_dynamic_blocks=extra_dynamic_blocks,
+        start_command_text=(
+            DEFAULT_START_COMMAND if start_command_text is None else start_command_text
+        ),
     )
     manifest_path = layout_output_path or output_path.with_name(output_path.stem + "_layout.json")
     manifest = write_prompt_layout_files(
@@ -209,6 +231,7 @@ class StopReason(Enum):
 
     TIMEOUT = "timeout"  # per-peer safety cap (max_runtime_seconds) hit
     USER_INTERRUPT = "user_interrupt"
+    INTERRUPTED = "interrupted"
     # v2026-05-04 R2#2 fix: orchestrator-initiated drain via STOP_SIGNAL
     # sentinel. Distinct from TIMEOUT so post-mortem can tell "trigger
     # fired (healthy gen-end)" from "peer ran the full safety cap".
@@ -226,7 +249,7 @@ _RUNTIME_FAILURE_RETRY_SECONDS = 5.0
 
 
 class StopChecker:
-    """Timeout-based stop checker.
+    """Stop-signal checker with an optional runtime limit.
 
     v2026-05-04: also supports a `stop_signal_path` sentinel file. When
     the orchestrator's synthesis trigger fires, it writes that file and
@@ -237,7 +260,7 @@ class StopChecker:
 
     def __init__(
         self,
-        max_runtime: float,
+        max_runtime: float | None,
         stop_signal_path: Optional["Path"] = None,
     ):
         self.max_runtime = max_runtime
@@ -265,7 +288,7 @@ class StopChecker:
             except (OSError, ValueError):
                 # FS hiccup — fall through to timeout check
                 pass
-        if self.elapsed_time >= self.max_runtime:
+        if self.max_runtime is not None and self.elapsed_time >= self.max_runtime:
             return StopReason.TIMEOUT
         return None
 
@@ -336,7 +359,7 @@ class BaseAgent:
         # ``docs/concepts/config_discipline.md``.
         run_config: RunConfig | None = None,
         runtime_env_overrides: dict[str, str] | None = None,
-        runtime_sandbox_intent: dict[str, str] | None = None,
+        runtime_sandbox_intent: dict[str, Any] | None = None,
         runtime_timeout_seconds: int | None = None,
         runtime_output_schema: dict[str, JSONValue] | None = None,
         require_no_shell_runtime: bool = False,
@@ -344,6 +367,7 @@ class BaseAgent:
         request_id: str | None = None,
         role_skill_sha256: str | None = None,
         reasoning_effort: str = "max",
+        execution_role: str | None = None,
     ):
         self.name = name
         self.allowed_tools = allowed_tools
@@ -361,6 +385,7 @@ class BaseAgent:
         self.stop_check_fn = stop_check_fn
         self.premium_mode = premium_mode
         self.reasoning_effort = reasoning_effort
+        self.execution_role = execution_role
         self._run_config_override: RunConfig | None = run_config
         self.runtime_env_overrides = dict(runtime_env_overrides or {})
         self.runtime_sandbox_intent = dict(runtime_sandbox_intent or {})
@@ -389,12 +414,35 @@ class BaseAgent:
 
     async def execute(self, task: str) -> AgentResult:
         """Execute the agent task via the configured AgentRuntime adapter."""
+        result, request_id = await self._execute_runtime_request(task)
+        final_payload = _runtime_final_payload(result)
+        output = final_payload.get("legacy_output")
+        return AgentResult(
+            success=result.success,
+            output=output if isinstance(output, dict) else {},
+            duration=_float_payload(final_payload.get("duration")),
+            iteration_count=_int_payload(final_payload.get("iteration_count")),
+            error=result.error,
+            usage=dict(result.usage),
+            request_id=request_id,
+        )
+
+    async def execute_normalized(self, task: str) -> AgentRunResult:
+        """Execute once with ordinary policy, accounting, and normalized output."""
+        result, _ = await self._execute_runtime_request(task)
+        return result
+
+    async def _execute_runtime_request(self, task: str) -> tuple[AgentRunResult, str]:
         env = _scoped_legacy_provider_env()
         env.update({key: value for key, value in self.runtime_env_overrides.items() if value})
         request = self._build_agent_run_request(task, env)
         trajectory = _legacy_trajectory_writer()
         started_event_id = None
-        model_call = _legacy_model_call_payload(self.model, run_config=self._run_config())
+        model_call = {
+            "provider_ref": request.model_call.provider_ref,
+            "model": request.model_call.model,
+            "credential_ref": request.credential_ref.key_id if request.credential_ref else "",
+        }
         if trajectory is not None:
             started = trajectory.emit(
                 "agent.run_started",
@@ -404,7 +452,7 @@ class BaseAgent:
                     "agent_name": self.name,
                     "agent_runtime_ref": request.agent_runtime_ref,
                     "request": request.to_dict(),
-                    "model": self.model,
+                    "model": request.model_call.model,
                     "model_call": model_call,
                     "budget_grant_id": self._run_config().budget_grant_id,
                 },
@@ -457,15 +505,7 @@ class BaseAgent:
                 },
                 parent_event_ids=[started_event_id] if started_event_id else [],
             )
-        return AgentResult(
-            success=runtime_result.success,
-            output=legacy_output,
-            duration=duration,
-            iteration_count=iteration_count,
-            error=runtime_result.error,
-            usage=dict(runtime_result.usage),
-            request_id=request.request_id,
-        )
+        return runtime_result, request.request_id
 
     def _build_agent_run_request(self, task: str, env: dict[str, str]) -> AgentRunRequest:
         cfg = self._run_config()
@@ -519,19 +559,24 @@ class BaseAgent:
             "codex_bin": cfg.codex_bin,
         }
         if self.runtime_sandbox_intent:
-            runtime_options["sandbox_intent"] = {
-                str(key): str(value) for key, value in self.runtime_sandbox_intent.items()
-            }
+            runtime_options["sandbox_intent"] = deepcopy(self.runtime_sandbox_intent)
         if self.runtime_output_schema is not None:
             runtime_options["output_schema"] = self.runtime_output_schema
         if self.require_no_shell_runtime:
             runtime_options["require_no_shell_runtime"] = True
         if self.require_read_only_runtime:
             runtime_options["require_read_only_runtime"] = True
+        if self.execution_role is not None:
+            runtime_options["execution_role"] = self.execution_role
 
         request_id = self._next_request_id or create_agent_request_id(self.name)
         self._next_request_id = None
-        return AgentRunRequest(
+        timeout_seconds = (
+            int(self.runtime_timeout_seconds)
+            if self.runtime_timeout_seconds is not None
+            else _int_env("PRAXIST_AGENT_TIMEOUT_SECONDS", 0)
+        )
+        request = AgentRunRequest(
             request_id=request_id,
             run_id=cfg.run_id or "legacy_direct",
             stage_id=cfg.stage_id or "research_loop",
@@ -563,15 +608,12 @@ class BaseAgent:
             credential_mode=os.environ.get("PRAXIST_CREDENTIAL_MODE", "single"),
             budget_grant_id=cfg.budget_grant_id or None,
             artifact_scope="run",
-            timeout_seconds=(
-                int(self.runtime_timeout_seconds)
-                if self.runtime_timeout_seconds is not None
-                else _int_env("PRAXIST_AGENT_TIMEOUT_SECONDS", 0)
-            ),
+            timeout_seconds=timeout_seconds if timeout_seconds > 0 else None,
             cache_policy=cache_policy,
             runtime_options=runtime_options,
             role_skill_sha256=self.role_skill_sha256,
         )
+        return apply_task_execution_policy(request, role=self.execution_role)
 
     def _runtime_tool_server_descriptors(self) -> list[dict[str, Any]]:
         """Describe connected tool servers without exposing provider objects."""
@@ -876,8 +918,9 @@ def _prompt_layout_runtime_overlay(
     }
 
 
-def _with_bootstrap_retry_directive(task_prompt: str) -> str:
-    return task_prompt.rstrip() + "\n\n" + BOOTSTRAP_RETRY_DIRECTIVE.strip() + "\n"
+def _with_bootstrap_retry_directive(task_prompt: str, *, scoreless: bool = False) -> str:
+    directive = _SCORELESS_BOOTSTRAP_RETRY_DIRECTIVE if scoreless else BOOTSTRAP_RETRY_DIRECTIVE
+    return task_prompt.rstrip() + "\n\n" + directive.strip() + "\n"
 
 
 def _legacy_trajectory_writer():
@@ -1022,6 +1065,9 @@ class AutonomousAgentLoop:
     another full prompt to the agent runtime. Lower-level graph/render/result
     files are intentionally not session wakeups; long experiment completion is
     handled inside a running session by tools such as wait_for_file.
+
+    An omitted or null runtime limit leaves scoreless peers unbounded. Metric
+    peers retain the legacy default limit. Explicit limits apply in either mode.
     """
 
     def __init__(
@@ -1054,11 +1100,13 @@ class AutonomousAgentLoop:
         prompt_layout_manifest: dict[str, Any] | None = None,
         plugin_registry: Any | None = None,
         peer_memory_config: PeerMemoryConfig | None = None,
+        task_spec: Any | None = None,
         role_ref: str | None = None,
         role_skill_sha256: str | None = None,
         reasoning_effort: str = "max",
     ):
         self.peer_id = peer_id
+        self.task_spec = task_spec
         self.generation_id = generation_id
         self.task_prompt = task_prompt
         self.run_id = os.getenv("RUN_ID") or str(uuid.uuid4())
@@ -1074,7 +1122,11 @@ class AutonomousAgentLoop:
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.findings_path = self.logs_dir.parent / "findings.json"
 
-        self.max_runtime_seconds = max_runtime_seconds or DEFAULT_FULL_AUTO_MAX_RUNTIME_SECONDS
+        self.max_runtime_seconds = (
+            max_runtime_seconds
+            if max_runtime_seconds is not None or is_scoreless(self.task_spec)
+            else DEFAULT_FULL_AUTO_MAX_RUNTIME_SECONDS
+        )
         # #75 batch 8a: env reads moved to the BaseAgent boundary. The
         # config re-export is the final fallback for tests that patch
         # ``config.S3_BUCKET`` / ``config.S3_RESULTS_PREFIX`` directly.
@@ -1152,6 +1204,7 @@ class AutonomousAgentLoop:
                 generation_id=self.generation_id,
                 findings_dir=self._findings_dir,
                 config=memory_config or PeerMemoryConfig(),
+                task_spec=self.task_spec,
             )
         except Exception as exc:
             logger.warning(
@@ -1177,6 +1230,7 @@ class AutonomousAgentLoop:
 
         self.session_count = 0
         self.runtime_usage: dict[str, float] = {}
+        self.last_result: dict[str, Any] | None = None
         if self.lossless_context_efficiency:
             logger.info(
                 "[%s] lossless context efficiency enabled; finding-only wakeups "
@@ -1659,8 +1713,10 @@ class AutonomousAgentLoop:
                 overrides={"role_ref": self.role_ref},
             )
 
+        remaining_runtime = self._remaining_runtime_seconds()
         return BaseAgent(
             name=f"{self.peer_id}-{session_id}",
+            execution_role="research",
             allowed_tools=self.allowed_tools,
             workspace=self.workspace,
             mcp_servers=self.mcp_servers,
@@ -1673,21 +1729,62 @@ class AutonomousAgentLoop:
             premium_mode=self.premium_mode,
             reasoning_effort=self.reasoning_effort,
             runtime_env_overrides=runtime_env_overrides,
-            runtime_timeout_seconds=max(1, int(self._remaining_runtime_seconds())),
+            runtime_timeout_seconds=(
+                max(1, int(remaining_runtime)) if remaining_runtime is not None else None
+            ),
             run_config=run_config,
             role_skill_sha256=self.role_skill_sha256,
         )
 
     async def run(self) -> dict[str, Any]:
-        """Run the autonomous agent loop."""
+        """Run the peer, preserving partial results before cancellation cleanup.
+
+        Returns:
+            The completed peer summary, also exposed through ``last_result``.
+
+        Raises:
+            asyncio.CancelledError: After capturing the partial summary and
+                releasing peer resources when the parent cancels this run.
+        """
+        stop_reason = None
+        try:
+            stop_reason = await self._run_until_stopped()
+        except asyncio.CancelledError:
+            stop_reason = StopReason.INTERRUPTED
+            raise
+        finally:
+            # The cohort can recover this snapshot even when its deadline
+            # leaves no time to await the remainder of peer cleanup.
+            result = self._capture_run_result(stop_reason)
+            try:
+                try:
+                    await self._release_active_supply_lease()
+                finally:
+                    if self.findings_sync:
+                        # stop() joins a thread; do not block cancellation of
+                        # other peers while that background thread winds down.
+                        await asyncio.to_thread(self._stop_findings_sync)
+                if not self.local_mode and stop_reason != StopReason.INTERRUPTED:
+                    await self._sync_to_s3()
+            except asyncio.CancelledError:
+                self._capture_run_result(StopReason.INTERRUPTED)
+                raise
+        return result
+
+    async def _run_until_stopped(self) -> StopReason | None:
         mode_str = "local" if self.local_mode else "server"
+        runtime_label = (
+            "unbounded"
+            if self.max_runtime_seconds is None
+            else f"{self.max_runtime_seconds / 3600:.1f}h"
+        )
         logger.info(
             f"\n{'=' * 60}\n"
             f"Autonomous Agent Loop ({mode_str} mode)\n"
             f"  Peer ID: {self.peer_id}\n"
             f"  Generation: {self.generation_id}\n"
             f"  Run ID: {self.run_id}\n"
-            f"  Max Runtime: {self.max_runtime_seconds / 3600:.1f}h\n"
+            f"  Max Runtime: {runtime_label}\n"
             f"{'=' * 60}"
         )
 
@@ -1853,24 +1950,9 @@ class AutonomousAgentLoop:
                         break
                     await asyncio.sleep(max(0.0, float(_RUNTIME_FAILURE_RETRY_SECONDS)))
 
-        await self._release_active_supply_lease()
+        return stop_reason
 
-        if self.findings_sync:
-            try:
-                self.findings_sync.stop()
-            except Exception as e:
-                # Adv-R1.3 fix: was silently swallowed, hiding thread leaks.
-                # Now log so we know if the background sync thread didn't
-                # actually stop (could leave SQLite connection / FD leaked).
-                logger.warning(
-                    "findings_sync.stop() failed: %s — background thread may "
-                    "still be alive (resource leak)",
-                    e,
-                )
-
-        if not self.local_mode:
-            await self._sync_to_s3()
-
+    def _capture_run_result(self, stop_reason: StopReason | None) -> dict[str, Any]:
         result: dict[str, Any] = {
             "peer_id": self.peer_id,
             "generation_id": self.generation_id,
@@ -1885,6 +1967,12 @@ class AutonomousAgentLoop:
             if total_tokens is not None:
                 result["total_tokens"] = total_tokens
 
+        self.last_result = result
+        try:
+            atomic_write_json(self.logs_dir / "peer_result.json", result)
+        except Exception as exc:
+            logger.warning("[%s] could not persist peer result: %s", self.peer_id, exc)
+
         logger.info(
             f"\n{'=' * 60}\n"
             f"Done: {result['sessions']} sessions, "
@@ -1894,6 +1982,18 @@ class AutonomousAgentLoop:
         )
 
         return result
+
+    def _stop_findings_sync(self) -> None:
+        if self.findings_sync is None:
+            return
+        try:
+            self.findings_sync.stop()
+        except Exception as exc:
+            logger.warning(
+                "findings_sync.stop() failed: %s — background thread may "
+                "still be alive (resource leak)",
+                exc,
+            )
 
     async def _release_active_supply_lease(self, *, declined: bool = False) -> None:
         lease_id = self._active_resource_supply_lease_id
@@ -1912,7 +2012,9 @@ class AutonomousAgentLoop:
         else:
             self._active_resource_supply_lease_id = ""
 
-    def _remaining_runtime_seconds(self) -> float:
+    def _remaining_runtime_seconds(self) -> float | None:
+        if self.max_runtime_seconds is None:
+            return None
         return max(0.0, float(self.max_runtime_seconds) - self.stop_checker.elapsed_time)
 
     async def _run_session(self) -> AgentResult:
@@ -1992,7 +2094,9 @@ class AutonomousAgentLoop:
                         message_callback=message_callback,
                     )
                     result = await retry_agent.execute(
-                        task=_with_bootstrap_retry_directive(session_task_prompt)
+                        task=_with_bootstrap_retry_directive(
+                            session_task_prompt, scoreless=is_scoreless(self.task_spec)
+                        )
                     )
                     result.usage = _merge_numeric_usage(
                         first_usage,
@@ -2027,6 +2131,19 @@ class AutonomousAgentLoop:
                     raise RuntimeError(f"Agent failed: {result.error}")
                 return result
 
+            except asyncio.CancelledError as exc:
+                cancellation_reason = str(exc) or "session cancelled"
+                session_error = asyncio.CancelledError(cancellation_reason)
+                if result is not None:
+                    # A completed bootstrap response still incurred usage,
+                    # but its interrupted retry cannot consume findings.
+                    self.runtime_usage = _merge_numeric_usage(
+                        self.runtime_usage,
+                        result.usage or {},
+                    )
+                    result = replace(result, success=False, error=cancellation_reason)
+                log_f.write(f"\n# Cancelled: {redact_text(cancellation_reason)[0]}\n")
+                raise
             except Exception as e:
                 session_error = e
                 log_f.write(f"\n# ERROR: {e}\n{traceback.format_exc()}")

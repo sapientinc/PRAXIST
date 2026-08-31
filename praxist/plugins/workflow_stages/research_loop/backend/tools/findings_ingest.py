@@ -40,6 +40,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from praxist.core.controller_state import controller_state_enabled
+from praxist.core.storage import read_file_bytes
 from praxist.plugins.workflow_stages.research_loop.backend.artifact_semantics import (
     CANONICAL_STATE,
     COMMITTED,
@@ -118,8 +120,8 @@ def _result_reference_effective_config_metadata(
         return {}
     summary_path = filepath.parent.parent / source_path
     try:
-        summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        summary = json.loads(read_file_bytes(summary_path).decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
     if not isinstance(summary, dict):
         return {}
@@ -722,8 +724,8 @@ def _declared_gem_paths_in_state(filepath: Path) -> dict[str, set[str]]:
     if not state_path.exists():
         return {}
     try:
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        state = json.loads(read_file_bytes(state_path).decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
     if not isinstance(state, dict):
         return {}
@@ -1020,9 +1022,12 @@ def parse_finding_file(
     ``None``, the legacy accuracy-alias-only behaviour is preserved.
     """
     try:
-        with open(filepath, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-    except OSError as e:
+        read_path = filepath
+        if not controller_state_enabled() and filepath.is_symlink():
+            # Legacy aliases remain readable, but never acquire target provenance.
+            read_path = filepath.resolve()
+        text = read_file_bytes(read_path).decode("utf-8", errors="replace")
+    except (OSError, RuntimeError) as e:
         logger.debug("findings_ingest: read failed %s (%s)", filepath.name, e)
         return None
     try:

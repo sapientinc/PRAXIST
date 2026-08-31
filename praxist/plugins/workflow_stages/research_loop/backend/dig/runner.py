@@ -652,14 +652,14 @@ async def _execute_planner_agent(
     prompt: str,
     label: str,
     agent_factory: Callable[[str], BaseAgent],
-    timeout_seconds: float,
+    timeout_seconds: float | None,
 ) -> str:
     agent = agent_factory(label)
     try:
         result = await asyncio.wait_for(agent.execute(prompt), timeout=timeout_seconds)
     except TimeoutError as exc:
         raise DIGPhaseTimeoutError(
-            f"DIG planner phase {label} exceeded {timeout_seconds:.1f}s timeout"
+            f"DIG planner phase {label} exceeded {timeout_seconds}s timeout"
         ) from exc
     if not result.success:
         raise RuntimeError(f"DIG planner call {label} failed: {result.error or result.output}")
@@ -671,16 +671,20 @@ async def _planner_call(
     prompt: str,
     label: str,
     agent_factory: Callable[[str], BaseAgent],
-    timeout_seconds: float,
+    timeout_seconds: float | None,
     set_runtime_timeout_seconds: Callable[[float | None], None] | None = None,
 ) -> dict[str, Any]:
-    phase_deadline = time.monotonic() + max(1.0, float(timeout_seconds))
+    phase_deadline = (
+        time.monotonic() + max(1.0, float(timeout_seconds)) if timeout_seconds is not None else None
+    )
 
-    def phase_remaining_seconds() -> float:
+    def phase_remaining_seconds() -> float | None:
+        if phase_deadline is None:
+            return None
         remaining = phase_deadline - time.monotonic()
         if remaining <= 0:
             raise DIGPhaseTimeoutError(
-                f"DIG planner phase {label} exhausted its {timeout_seconds:.1f}s budget"
+                f"DIG planner phase {label} exhausted its {timeout_seconds}s budget"
             )
         return max(1.0, remaining)
 
@@ -739,7 +743,11 @@ async def run_dig_lite(
 
     dig_dir.mkdir(parents=True, exist_ok=True)
     _clear_final_artifacts(dig_dir)
-    per_call_timeout_seconds = max(30.0, float(config.planner_max_runtime_minutes) * 60.0)
+    per_call_timeout_seconds = (
+        max(30.0, float(config.planner_max_runtime_minutes) * 60.0)
+        if config.planner_max_runtime_minutes is not None
+        else None
+    )
     total_deadline: float | None = None
     remaining_budget = ctx.get("dig_remaining_budget_seconds")
     try:
@@ -748,10 +756,13 @@ async def run_dig_lite(
     except (TypeError, ValueError):
         total_deadline = None
 
-    def remaining_timeout_seconds() -> float:
+    def remaining_timeout_seconds() -> float | None:
         timeout = per_call_timeout_seconds
         if total_deadline is not None:
-            timeout = min(timeout, total_deadline - time.monotonic())
+            remaining = total_deadline - time.monotonic()
+            timeout = min(timeout, remaining) if timeout is not None else remaining
+        if timeout is None:
+            return None
         if timeout <= 0:
             raise TimeoutError("DIG-Lite total planner budget exhausted.")
         return max(1.0, timeout)
@@ -772,6 +783,7 @@ async def run_dig_lite(
         )
         return BaseAgent(
             name=f"{ctx.get('peer_id', 'peer')}-dig-{label}",
+            execution_role="research",
             allowed_tools=_read_only_planner_tools(config),
             workspace=workspace,
             mcp_servers={},
@@ -780,7 +792,9 @@ async def run_dig_lite(
             plugin_registry=plugin_registry,
             premium_mode=premium_mode,
             reasoning_effort=reasoning_effort,
-            runtime_timeout_seconds=max(1, int(runtime_timeout)),
+            runtime_timeout_seconds=(
+                max(1, int(runtime_timeout)) if runtime_timeout is not None else None
+            ),
             # claude_sdk can satisfy the stronger no-shell planner contract.
             # codex_sdk's read/search surface is shell-backed, so require the
             # weaker read-only runtime contract instead.

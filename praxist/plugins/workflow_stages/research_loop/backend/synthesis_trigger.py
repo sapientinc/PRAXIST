@@ -2,7 +2,8 @@
 
 Replaces the old `per_generation_hours` fixed timer. A generation runs
 until information density (findings count + contributing peers) reaches
-a threshold OR a safety cap fires.
+a threshold OR an explicitly configured safety cap fires. A null maximum
+interval keeps evidence and cohort-completion events active without a timer cap.
 
 When close criteria are met while protected evaluations are still running, the
 orchestrator first writes `<gen_dir>/CLOSING_SIGNAL`. Peers use this as a
@@ -32,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from praxist.plugins.workflow_stages.research_loop.backend.event_wait import (
+    FileEventWaitResult,
     wait_for_filesystem_event,
 )
 from praxist.plugins.workflow_stages.research_loop.backend.evidence_maturity import (
@@ -439,7 +441,7 @@ class SynthesisTrigger:
         gen_start_time: float,
         min_findings: int = 30,
         min_interval_minutes: float = 120.0,
-        max_interval_minutes: float = 240.0,
+        max_interval_minutes: float | None = 240.0,
         min_contributing_peers: int = 3,
         poll_interval_seconds: int = 30,
         adaptive_policy: object | None = None,
@@ -469,6 +471,7 @@ class SynthesisTrigger:
         local_store_dir: Path | str | None = None,
         event_heartbeat_seconds: int | None = None,
         started_peer_ids: Collection[str] | None = None,
+        cohort_completed_event: asyncio.Event | None = None,
     ):
         self.run_dir = Path(run_dir)
         self.gen_dir = Path(gen_dir)
@@ -476,7 +479,9 @@ class SynthesisTrigger:
         self.gen_start_time = _float_or_default(gen_start_time, time.time())
         self.min_findings = _int_or_default(min_findings, 30)
         self.min_interval_minutes = _float_or_default(min_interval_minutes, 120.0)
-        self.max_interval_minutes = _float_or_default(max_interval_minutes, 240.0)
+        self.max_interval_minutes = (
+            None if max_interval_minutes is None else _float_or_default(max_interval_minutes, 240.0)
+        )
         self.min_contributing_peers = _int_or_default(min_contributing_peers, 3)
         self.adaptive_policy = AdaptiveSynthesisPolicy.from_raw(adaptive_policy)
         self.maturity_policy = normalize_maturity_policy(maturity_policy)
@@ -514,7 +519,10 @@ class SynthesisTrigger:
                     self.min_interval_minutes,
                     self.adaptive_policy.min_interval_floor_minutes,
                 )
-            if self.adaptive_policy.max_interval_ceiling_minutes > 0:
+            if (
+                self.max_interval_minutes is not None
+                and self.adaptive_policy.max_interval_ceiling_minutes > 0
+            ):
                 self.max_interval_minutes = max(
                     self.max_interval_minutes,
                     self.adaptive_policy.max_interval_ceiling_minutes,
@@ -555,6 +563,7 @@ class SynthesisTrigger:
         self._snapshots: list[TriggerSnapshot] = []
         self._pre_eval_sync_callback = pre_eval_sync_callback
         self._cohort_active_peers_callback = cohort_active_peers_callback
+        self._cohort_completed_event = cohort_completed_event
         self._cohort_drain_warmup_seconds = float(cohort_drain_warmup_seconds)
         self._drain_started_at: float | None = None
         self._assessment_started = False
@@ -1510,7 +1519,7 @@ class SynthesisTrigger:
 
         # A configured mature quorum defines normal completion. Fixed/adaptive
         # evidence can begin a close assessment, but cannot bypass it. The
-        # safety cap remains the only unconditional liveness escape hatch.
+        # optional safety cap remains the only unconditional timer escape hatch.
         normal_completion_ready = (
             (
                 mature_quorum_ready
@@ -1520,7 +1529,11 @@ class SynthesisTrigger:
             and active_generation_work <= 0
             and active_protected_pids <= 0
         )
-        if minutes_since_start >= self.max_interval_minutes and not normal_completion_ready:
+        if (
+            self.max_interval_minutes is not None
+            and minutes_since_start >= self.max_interval_minutes
+            and not normal_completion_ready
+        ):
             return TriggerSnapshot(
                 fired=True,
                 reason="safety_cap",
@@ -1955,8 +1968,11 @@ class SynthesisTrigger:
             return max(1.0, min(60.0, self.poll_interval_seconds))
         elapsed_seconds = max(0.0, time.time() - self.gen_start_time)
         min_interval_seconds = self.min_interval_minutes * 60.0
-        max_interval_seconds = self.max_interval_minutes * 60.0
-        timer_seconds = max(1.0, max_interval_seconds - elapsed_seconds)
+        timer_seconds = (
+            self.poll_interval_seconds
+            if self.max_interval_minutes is None
+            else max(1.0, self.max_interval_minutes * 60.0 - elapsed_seconds)
+        )
         has_fixed_density_except_time = (
             snap.findings_count >= self.min_findings
             and snap.contributing_peers >= self.min_contributing_peers
@@ -1988,6 +2004,40 @@ class SynthesisTrigger:
         if has_density_except_time and elapsed_seconds < min_interval_seconds:
             timer_seconds = min(timer_seconds, min_interval_seconds - elapsed_seconds)
         return max(1.0, min(timer_seconds, self.poll_interval_seconds))
+
+    async def _wait_for_change(
+        self, wait_seconds: float, abort_requested: Callable[[], bool]
+    ) -> FileEventWaitResult:
+        filesystem_wait = wait_for_filesystem_event(
+            self._watch_paths(),
+            timeout_seconds=wait_seconds,
+            stop_check=abort_requested,
+            recursive=True,
+            max_dirs=512,
+            fallback_interval_seconds=wait_seconds,
+            stop_check_interval_seconds=30.0,
+            event_filter=self._is_trigger_event,
+        )
+        if self._cohort_completed_event is None:
+            return await filesystem_wait
+        # Peer completion is independent of filesystem activity. Wake this
+        # evaluation loop rather than evaluating shared trigger state concurrently.
+        filesystem_task = asyncio.create_task(filesystem_wait)
+        completed_task = asyncio.create_task(self._cohort_completed_event.wait())
+        try:
+            done, _ = await asyncio.wait(
+                {filesystem_task, completed_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if completed_task in done:
+                self._cohort_completed_event.clear()
+            if filesystem_task in done:
+                return filesystem_task.result()
+            return FileEventWaitResult(reason="cohort_completed", elapsed_seconds=0.0)
+        finally:
+            for task in (filesystem_task, completed_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(filesystem_task, completed_task, return_exceptions=True)
 
     async def wait_until_fire(
         self,
@@ -2027,13 +2077,18 @@ class SynthesisTrigger:
                     self.fire(snap)
                     return snap
                 if n == 1 or n % 4 == 0:
+                    cap_display = (
+                        "unbounded"
+                        if self.max_interval_minutes is None
+                        else f"{self.max_interval_minutes:.1f}"
+                    )
                     if self.adaptive_policy.enabled:
                         logger.info(
                             "synthesis_trigger: gen %d waiting — "
                             "findings=%d/%d, peers=%d/%d, "
                             "evidence=%.2f/%.2f, result_evidence_peers=%d/%d, "
                             "mature_peers=%d/%d, active_evals=%d, active_work=%d, elapsed=%.1f/%.1f min "
-                            "(cap %.1f, reason=%s)",
+                            "(cap %s, reason=%s)",
                             self.gen_id,
                             snap.findings_count,
                             self.min_findings,
@@ -2049,14 +2104,14 @@ class SynthesisTrigger:
                             snap.active_generation_work,
                             snap.minutes_since_start,
                             self.min_interval_minutes,
-                            self.max_interval_minutes,
+                            cap_display,
                             snap.reason,
                         )
                     else:
                         logger.info(
                             "synthesis_trigger: gen %d waiting — findings=%d/%d, "
                             "peers=%d/%d, result_evidence_peers=%d, mature_peers=%d/%d, "
-                            "active_evals=%d, active_work=%d, elapsed=%.1f/%.1f min (cap %.1f)",
+                            "active_evals=%d, active_work=%d, elapsed=%.1f/%.1f min (cap %s)",
                             self.gen_id,
                             snap.findings_count,
                             self.min_findings,
@@ -2069,7 +2124,7 @@ class SynthesisTrigger:
                             snap.active_generation_work,
                             snap.minutes_since_start,
                             self.min_interval_minutes,
-                            self.max_interval_minutes,
+                            cap_display,
                         )
             except asyncio.CancelledError:
                 raise
@@ -2086,16 +2141,7 @@ class SynthesisTrigger:
             def _abort_requested() -> bool:
                 return bool(abort_event is not None and abort_event.is_set())
 
-            wait_result = await wait_for_filesystem_event(
-                self._watch_paths(),
-                timeout_seconds=wait_seconds,
-                stop_check=_abort_requested,
-                recursive=True,
-                max_dirs=512,
-                fallback_interval_seconds=wait_seconds,
-                stop_check_interval_seconds=30.0,
-                event_filter=self._is_trigger_event,
-            )
+            wait_result = await self._wait_for_change(wait_seconds, _abort_requested)
             if wait_result.reason == "stop":
                 logger.info(
                     "synthesis_trigger: wait aborted via event (gen %d, elapsed %.1f min)",

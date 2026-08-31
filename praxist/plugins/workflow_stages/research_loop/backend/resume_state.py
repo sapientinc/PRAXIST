@@ -15,9 +15,12 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from itertools import count
 from pathlib import Path
 from typing import Any
 
+from praxist.core.controller_state import read_private_startup_config
+from praxist.core.storage import read_file_bytes
 from praxist.plugins.workflow_stages.research_loop.backend.artifact_semantics import (
     CANONICAL_STATE,
     COMMITTED,
@@ -99,7 +102,7 @@ class ResumePlan:
 def inspect_resume_plan(
     run_dir: Path,
     *,
-    max_generations: int,
+    max_generations: int | None,
     pi_enabled: bool,
     policy: str = "completed_generation",
 ) -> ResumePlan:
@@ -109,6 +112,9 @@ def inspect_resume_plan(
     boundary are both durably materialized. If a cohort result exists without a
     boundary marker/frontier/agenda, the plan asks the orchestrator to complete
     that boundary before launching the next cohort.
+
+    A ``None`` generation limit inspects the contiguous durable prefix until its
+    first missing or incomplete generation, without imposing a finite ceiling.
     """
 
     if policy != "completed_generation":
@@ -121,7 +127,7 @@ def inspect_resume_plan(
 
     completed = 0
     pending_boundary: int | None = None
-    for gen_id in range(max_generations):
+    for gen_id in count() if max_generations is None else range(max_generations):
         if not _generation_results_valid(run_dir, gen_id):
             break
 
@@ -156,7 +162,7 @@ def inspect_resume_plan(
 def repair_inferred_gems_boundary_markers(
     run_dir: Path,
     *,
-    max_generations: int,
+    max_generations: int | None,
     pi_enabled: bool,
 ) -> list[dict[str, Any]]:
     """Backfill markers for committed boundaries inferred by legacy runs.
@@ -176,7 +182,7 @@ def repair_inferred_gems_boundary_markers(
     frontier_generations = _frontier_generations(run_dir)
     marker_contract_start = _boundary_marker_contract_start(run_dir)
     repaired: list[dict[str, Any]] = []
-    for gen_id in range(max_generations):
+    for gen_id in count() if max_generations is None else range(max_generations):
         if not _generation_results_valid(run_dir, gen_id):
             break
         marker = run_dir / f"gen_{gen_id}" / BOUNDARY_MARKER_FILENAME
@@ -436,6 +442,13 @@ def write_boundary_marker(
         f"gen_{gen_id}/generation_results.json",
         "frontier/frontier_manifest.json",
     ]
+    scoreless_manifest = f"gen_{gen_id}/scoreless_evidence.json"
+    scoreless_evidence_sha256 = None
+    if (run_dir / scoreless_manifest).is_file():
+        scoreless_evidence_sha256 = hashlib.sha256(
+            read_file_bytes(run_dir / scoreless_manifest)
+        ).hexdigest()
+        canonical_sources.append(scoreless_manifest)
     if is_committed_runtime_fact_file(run_dir / "gems" / "gems_state.json"):
         canonical_sources.append("gems/gems_state.json")
     payload = {
@@ -462,6 +475,8 @@ def write_boundary_marker(
     }
     if evidence_cutoff_at:
         payload["evidence_cutoff_at"] = str(evidence_cutoff_at)
+    if scoreless_evidence_sha256 is not None:
+        payload["scoreless_evidence_sha256"] = scoreless_evidence_sha256
     if evidence_source_snapshot_at_cutoff is not None:
         from praxist.plugins.workflow_stages.research_loop.backend.findings_collection import (
             compact_boundary_source_snapshot,
@@ -505,14 +520,20 @@ def validate_resume_startup_identity(
     """Ensure resume startup cannot silently mix a run with a new task/model identity."""
 
     run_dir = Path(run_dir)
-    existing_startup = _read_json_object_for_resume(run_dir / "startup_config.json")
+    private_startup = read_private_startup_config(run_dir)
+    existing_startup = (
+        private_startup
+        if private_startup is not None
+        else _read_json_object_for_resume(run_dir / "startup_config.json")
+    )
     existing_run = _read_json_object_for_resume(run_dir / "run.json")
     mismatches = _resume_canonical_mismatches(
         existing_startup,
         startup_config,
-        existing_run,
+        {} if private_startup is not None else existing_run,
         run_dir,
         candidate_task_project_manifest,
+        strict_private_identity=private_startup is not None,
     )
     event_payload = {
         "event": "startup.resume_identity_check",
@@ -538,7 +559,9 @@ def ensure_resumable_run_dir(run_dir: Path) -> None:
         raise ValueError(f"resume run_dir does not exist: {run_dir}")
     if not run_dir.is_dir():
         raise ValueError(f"resume run_dir is not a directory: {run_dir}")
-    missing = [rel for rel in ("run.json", "startup_config.json") if not (run_dir / rel).exists()]
+    private_startup = read_private_startup_config(run_dir)
+    required = ("run.json",) if private_startup is not None else ("run.json", "startup_config.json")
+    missing = [rel for rel in required if not (run_dir / rel).exists()]
     if missing:
         raise ValueError(
             f"resume run_dir is missing Praxist startup artifacts: {run_dir} ({', '.join(missing)})"
@@ -579,6 +602,8 @@ def _resume_canonical_mismatches(
     existing_run_metadata: dict[str, Any],
     run_dir: Path,
     candidate_task_project_manifest: dict[str, Any] | None = None,
+    *,
+    strict_private_identity: bool = False,
 ) -> list[dict[str, str]]:
     existing_args = existing_startup_config.get("canonical_args")
     candidate_args = startup_config.get("canonical_args")
@@ -638,7 +663,11 @@ def _resume_canonical_mismatches(
         if isinstance(existing_run_metadata.get("task_project"), dict)
         else {}
     )
-    existing_manifest_file = _read_json_object_optional(run_dir / "task_project_manifest.json")
+    existing_manifest_file = (
+        {}
+        if strict_private_identity
+        else _read_json_object_optional(run_dir / "task_project_manifest.json")
+    )
     existing_manifest = str(
         existing_identity.get("task_project_manifest_sha256")
         or existing_task_project.get("manifest_sha256")
@@ -877,7 +906,7 @@ def _generation_boundary_done(
     run_dir: Path,
     gen_id: int,
     *,
-    max_generations: int,
+    max_generations: int | None,
     pi_enabled: bool,
     frontier_generations: set[int],
     explicit_marker_required: bool | None = None,
@@ -898,7 +927,7 @@ def _generation_boundary_done(
         return False, "required generation boundary marker is missing"
     if gen_id not in frontier_generations:
         return False, "frontier manifest has no entry for generation"
-    if pi_enabled and gen_id < max_generations - 1:
+    if pi_enabled and (max_generations is None or gen_id < max_generations - 1):
         agenda = Path(run_dir) / "agendas" / f"research_agenda_gen{gen_id + 1}.yaml"
         if not _agenda_committed_for_resume(agenda):
             return False, "frontier entry exists but next-generation agenda is missing"
@@ -930,7 +959,12 @@ def _boundary_marker_contract_start(run_dir: Path) -> int | None:
     """
 
     run_dir = Path(run_dir)
-    startup = _read_json_object_optional(run_dir / "startup_config.json")
+    private_startup = read_private_startup_config(run_dir)
+    startup = (
+        private_startup
+        if private_startup is not None
+        else _read_json_object_optional(run_dir / "startup_config.json")
+    )
     if startup.get("schema_version") == "praxist.startup.v1":
         return 0
     run_metadata = _read_json_object_optional(run_dir / "run.json")

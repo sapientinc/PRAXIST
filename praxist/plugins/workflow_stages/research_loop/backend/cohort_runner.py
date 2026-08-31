@@ -29,6 +29,8 @@ from praxist.plugins.workflow_stages.research_loop.backend.dig.runner import (
 from praxist.plugins.workflow_stages.research_loop.backend.peer_memory import (
     PeerSessionMemory,
 )
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
+from praxist.plugins.workflow_stages.research_loop.backend.tools.atomic_io import atomic_write_json
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +40,13 @@ _PEER_DRAIN_GRACE_SECONDS = 120  # grace period for peers to exit after STOP_SIG
 def _effective_generation_cap_seconds(
     synthesis_trigger_config: Any,
     *,
-    per_peer_safety_seconds: float,
-) -> float:
+    per_peer_safety_seconds: float | None,
+) -> float | None:
     """Return the same effective close horizon enforced by the trigger."""
 
     if not bool(getattr(synthesis_trigger_config, "enabled", True)):
+        return per_peer_safety_seconds
+    if getattr(synthesis_trigger_config, "max_interval_minutes", 0.0) is None:
         return per_peer_safety_seconds
 
     from praxist.plugins.workflow_stages.research_loop.backend.synthesis_trigger import (
@@ -55,9 +59,11 @@ def _effective_generation_cap_seconds(
     )
     adaptive = AdaptiveSynthesisPolicy.from_raw(getattr(synthesis_trigger_config, "adaptive", {}))
     adaptive_minutes = max(0.0, adaptive.max_interval_ceiling_minutes) if adaptive.enabled else 0.0
-    return min(
-        per_peer_safety_seconds,
-        max(60.0, max(fixed_minutes, adaptive_minutes) * 60.0),
+    trigger_horizon = max(60.0, max(fixed_minutes, adaptive_minutes) * 60.0)
+    return (
+        trigger_horizon
+        if per_peer_safety_seconds is None
+        else min(per_peer_safety_seconds, trigger_horizon)
     )
 
 
@@ -338,7 +344,28 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
     """Run one generation cohort using the owning ``GenerationLoop`` state."""
     gp = loop.task_spec.generation_policy
     cohort_size = gp.cohort_size
-    per_peer_safety_seconds = gp.per_generation_hours * 3600
+    per_peer_safety_seconds = (
+        None if gp.per_generation_hours is None else gp.per_generation_hours * 3600
+    )
+    lifecycle = getattr(loop, "_task_lifecycle", None)
+
+    def _remaining_wait_seconds(requested: float) -> float:
+        remaining = lifecycle.remaining_seconds() if lifecycle is not None else None
+        return max(0.0, requested if remaining is None else min(requested, remaining))
+
+    def _research_deadline_expired() -> bool:
+        remaining = lifecycle.remaining_seconds() if lifecycle is not None else None
+        return remaining is not None and remaining <= 0
+
+    remaining = lifecycle.remaining_seconds() if lifecycle is not None else None
+    if remaining is not None:
+        if remaining <= 0:
+            return []
+        per_peer_safety_seconds = (
+            remaining
+            if per_peer_safety_seconds is None
+            else min(per_peer_safety_seconds, remaining)
+        )
 
     os.environ["GENERATION_ID"] = str(gen_id)
     logical_gen_id = gen_id
@@ -387,14 +414,15 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             "peer_id": peer_id,
         }
     dig_config = getattr(loop, "dig_lite_config", None)
-    dig_active = _generation_feature_enabled(
+    scoreless = is_scoreless(loop.task_spec)
+    dig_active = not scoreless and _generation_feature_enabled(
         dig_config,
         gen_id,
         fallback=bool(dig_config is not None and getattr(dig_config, "enabled", False)),
     )
     qd_config = getattr(loop, "quality_diversity_config", None)
     legacy_qd = bool(dig_active)
-    qd_active = _generation_feature_enabled(
+    qd_active = not scoreless and _generation_feature_enabled(
         qd_config,
         gen_id,
         fallback=legacy_qd,
@@ -691,6 +719,13 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             context=ctx,
             prompt_id=f"gen_{gen_id}/{peer_id}",
             extra_dynamic_blocks=extra_dynamic_blocks,
+            start_command_text=(
+                "Begin by reading the assigned task, research notebook, and prior retained "
+                "findings. Use that evidence to plan and carry out your assigned research; "
+                "retain useful findings without metric ranking."
+                if scoreless
+                else None
+            ),
         )
         prompt_layout_manifest = loop._persist_prompt_layout_artifacts(
             prompt_text=prompt_text,
@@ -708,7 +743,11 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             generation_id=gen_id,
             task_prompt=prompt_text,
             workspace=loop.workspace,
-            max_runtime_seconds=per_peer_safety_seconds,
+            max_runtime_seconds=(
+                None
+                if per_peer_safety_seconds is None
+                else max(1, math.ceil(per_peer_safety_seconds))
+            ),
             logs_dir=peer_logs,
             findings_dir=loop.findings_dir,
             model=loop.model,
@@ -729,6 +768,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             role_skill_sha256=(
                 peer_role_skill.content_hash if peer_role_skill is not None else None
             ),
+            task_spec=loop.task_spec,
         )
         return {"peer_id": peer_id, "peer": peer, "prelaunch_result": None}
 
@@ -779,11 +819,25 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
         st_cfg,
         per_peer_safety_seconds=per_peer_safety_seconds,
     )
+    remaining = lifecycle.remaining_seconds() if lifecycle is not None else None
+    if remaining is not None:
+        generation_cap_seconds = (
+            max(0.0, remaining)
+            if generation_cap_seconds is None
+            else min(generation_cap_seconds, max(0.0, remaining))
+        )
+        per_peer_safety_seconds = (
+            max(0.0, remaining)
+            if per_peer_safety_seconds is None
+            else min(per_peer_safety_seconds, max(0.0, remaining))
+        )
     watchdog_cap_seconds = generation_cap_seconds if st_cfg.enabled else per_peer_safety_seconds
     if scheduler is not None:
         scheduler.open_generation(
             gen_id,
-            deadline=gen_start_time + generation_cap_seconds,
+            deadline=(
+                None if generation_cap_seconds is None else gen_start_time + generation_cap_seconds
+            ),
             cohort_size=len(peers),
             peer_ids=started_peer_ids,
         )
@@ -831,6 +885,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             launched_peer_count,
         )
 
+    cohort_completed = asyncio.Event()
     trigger = SynthesisTrigger(
         run_dir=loop.run_dir,
         gen_dir=gen_dir,
@@ -848,6 +903,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
         started_peer_ids=started_peer_ids,
         pre_eval_sync_callback=_trigger_pre_sync,
         cohort_active_peers_callback=_active_peers,
+        cohort_completed_event=cohort_completed,
         # #75 batch 9: thread the store root explicitly so the trigger
         # never reads LOCAL_STORE_DIR from os.environ. ``run_dir`` is
         # the in-process answer; operators that want to override the
@@ -897,7 +953,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
     async def _trigger_task() -> None:
         try:
             if not st_cfg.enabled:
-                logger.info("synthesis_trigger disabled by config; peers run to safety cap.")
+                logger.info("synthesis_trigger disabled by config; peers use their runtime policy.")
                 return
             await trigger.wait_until_fire(abort_event=trigger_done)
         except asyncio.CancelledError:
@@ -917,16 +973,28 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
     # on their own (they check STOP_SIGNAL between sessions), then cancel.
     async def _cancel_peers_after_trigger() -> None:
         if not st_cfg.enabled:
+            if per_peer_safety_seconds is None:
+                logger.info(
+                    "synthesis_trigger disabled for gen %d with no peer runtime cap; "
+                    "waiting for peers to finish or operator cancellation.",
+                    gen_id,
+                )
+                await trigger_done.wait()
+                return
             logger.info(
                 "synthesis_trigger disabled for gen %d; peers run to generation runtime cap %.0fs.",
                 gen_id,
                 per_peer_safety_seconds,
             )
-            await asyncio.sleep(max(1.0, float(per_peer_safety_seconds)))
+            await asyncio.sleep(_remaining_wait_seconds(max(1.0, float(per_peer_safety_seconds))))
         else:
             completed, _ = await asyncio.wait(
                 {trigger_task},
-                timeout=max(1.0, float(per_peer_safety_seconds)),
+                timeout=(
+                    None
+                    if per_peer_safety_seconds is None
+                    else _remaining_wait_seconds(max(1.0, float(per_peer_safety_seconds)))
+                ),
             )
             if trigger_task in completed:
                 logger.info(
@@ -934,7 +1002,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                     gen_id,
                     _PEER_DRAIN_GRACE_SECONDS,
                 )
-                await asyncio.sleep(_PEER_DRAIN_GRACE_SECONDS)
+                await asyncio.sleep(_remaining_wait_seconds(_PEER_DRAIN_GRACE_SECONDS))
             else:
                 logger.warning(
                     "Generation %d reached peer runtime cap %.0fs before synthesis_trigger fired; "
@@ -943,17 +1011,20 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                     per_peer_safety_seconds,
                 )
                 try:
-                    snap = await trigger.evaluate_async()
-                    snap.fired = True
-                    snap.reason = "generation_wall_timeout"
-                    trigger.fire(snap)
+                    if _research_deadline_expired():
+                        trigger.fire_deadline()
+                    else:
+                        snap = await trigger.evaluate_async()
+                        snap.fired = True
+                        snap.reason = "generation_wall_timeout"
+                        trigger.fire(snap)
                 except Exception as e:  # noqa: BLE001 - cancellation still proceeds.
                     logger.warning(
                         "Could not write generation wall-time STOP_SIGNAL for gen %d: %s",
                         gen_id,
                         e,
                     )
-                await asyncio.sleep(_PEER_DRAIN_GRACE_SECONDS)
+                await asyncio.sleep(_remaining_wait_seconds(_PEER_DRAIN_GRACE_SECONDS))
         try:
             from .experiment_scheduler_client import freeze_generation
 
@@ -975,20 +1046,40 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                 t.cancel()
 
     _cancel_task = asyncio.create_task(_cancel_peers_after_trigger())
-    deadline_watchdog_stop, deadline_watchdog_thread = _start_generation_deadline_watchdog(
-        trigger,
-        deadline=gen_start_time + watchdog_cap_seconds,
-        gen_id=gen_id,
+    deadline_watchdog = (
+        None
+        if watchdog_cap_seconds is None
+        else _start_generation_deadline_watchdog(
+            trigger,
+            deadline=gen_start_time + watchdog_cap_seconds,
+            gen_id=gen_id,
+        )
     )
 
     def _peer_task_results() -> list[Any]:
         collected: list[Any] = []
-        for task in peer_tasks:
+        for peer, task in zip(peers, peer_tasks, strict=True):
             if not task.done():
-                collected.append(RuntimeError("peer task still active at generation boundary"))
+                collected.append(
+                    {
+                        **(getattr(peer, "last_result", None) or {}),
+                        "peer_id": peer.peer_id,
+                        "generation_id": gen_id,
+                        "success": False,
+                        "status": "late_quarantined_peer_task",
+                        "late_result_policy": "quarantined_signal",
+                        "promotion_eligible": False,
+                        "error": "peer task still active after bounded cancellation",
+                    }
+                )
                 continue
             if task.cancelled():
-                collected.append(RuntimeError("peer task cancelled at generation boundary"))
+                partial = getattr(peer, "last_result", None)
+                collected.append(
+                    partial
+                    if isinstance(partial, dict)
+                    else RuntimeError("peer task cancelled at generation boundary")
+                )
                 continue
             try:
                 collected.append(task.result())
@@ -1074,6 +1165,19 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             )
         return records
 
+    cancelled_error: asyncio.CancelledError | None = None
+
+    def _interrupt_cohort_tasks() -> None:
+        for task in [*peer_tasks, trigger_task, _cancel_task]:
+            if not task.done():
+                task.cancel()
+        try:
+            trigger.fire_deadline(
+                "research_deadline_reached" if _research_deadline_expired() else "cohort_cancelled"
+            )
+        except Exception as error:  # noqa: BLE001 - peer cancellation must still happen.
+            logger.warning("Could not publish cancellation signal for gen %d: %s", gen_id, error)
+
     try:
         if peer_tasks:
             while not _cancel_task.done() and any(not task.done() for task in peer_tasks):
@@ -1083,7 +1187,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                     timeout=1.0,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-            _done, pending = await asyncio.wait(peer_tasks, timeout=10.0)
+            _done, pending = await asyncio.wait(peer_tasks, timeout=_remaining_wait_seconds(10.0))
             if pending:
                 logger.warning(
                     "Generation %d still has %d peer task(s) after drain; recording them as boundary errors and continuing.",
@@ -1092,37 +1196,78 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                 )
                 for task in pending:
                     task.cancel()
-                await asyncio.wait(pending, timeout=2.0)
-        results = _peer_task_results()
+                await asyncio.wait(pending, timeout=_remaining_wait_seconds(2.0))
+    except asyncio.CancelledError as exc:
+        # The outer run deadline cancels this cohort. Freeze admission and
+        # request peer interruption before allowing finalization to proceed.
+        # Completed peer output is serialized below before cancellation escapes.
+        cancelled_error = exc
+        _interrupt_cohort_tasks()
+        if peer_tasks:
+            try:
+                await asyncio.wait(peer_tasks, timeout=_remaining_wait_seconds(10.0))
+            except asyncio.CancelledError as repeated:
+                cancelled_error = repeated
+                _interrupt_cohort_tasks()
     finally:
-        deadline_watchdog_stop.set()
-        deadline_watchdog_thread.join(timeout=2.0)
+        if all(task.done() for task in peer_tasks):
+            cohort_completed.set()
+        if deadline_watchdog is not None:
+            deadline_watchdog_stop, deadline_watchdog_thread = deadline_watchdog
+            deadline_watchdog_stop.set()
+            deadline_watchdog_thread.join(timeout=_remaining_wait_seconds(2.0))
+
+        async def _bounded_task_wait(task: asyncio.Task[Any], seconds: float) -> bool:
+            nonlocal cancelled_error
+            try:
+                done, _ = await asyncio.wait({task}, timeout=_remaining_wait_seconds(seconds))
+            except asyncio.CancelledError as exc:
+                # Cancellation can arrive after all peers have finished, while
+                # this function is already in its cleanup block. Retain those
+                # results with the same contract as an interrupted cohort.
+                cancelled_error = exc
+                _interrupt_cohort_tasks()
+                task.cancel()
+                try:
+                    done, _ = await asyncio.wait({*peer_tasks, task}, timeout=0.0)
+                except asyncio.CancelledError as repeated:
+                    cancelled_error = repeated
+                    _interrupt_cohort_tasks()
+                    done = {candidate for candidate in [*peer_tasks, task] if candidate.done()}
+            if task in done:
+                with contextlib.suppress(asyncio.CancelledError):
+                    task.result()
+                return True
+            return False
 
         async def _cancel_trigger_task() -> None:
             trigger_done.set()
-            try:
-                await asyncio.wait_for(trigger_task, timeout=10)
-            except TimeoutError:
+            if cancelled_error is not None or _research_deadline_expired():
                 trigger_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await trigger_task
-            except asyncio.CancelledError:
-                pass
+            if not await _bounded_task_wait(trigger_task, 10.0):
+                trigger_task.cancel()
+                await _bounded_task_wait(trigger_task, 2.0)
 
         pending_trigger_drain = bool(
             getattr(trigger, "closing", False) or getattr(trigger, "assessment_started", False)
         )
-        if st_cfg.enabled and pending_trigger_drain and not trigger.fired:
-            wait_seconds = _closing_trigger_wait_seconds(trigger, _active_protected_jobs())
+        if (
+            st_cfg.enabled
+            and pending_trigger_drain
+            and not trigger.fired
+            and cancelled_error is None
+            and not _research_deadline_expired()
+        ):
+            wait_seconds = _remaining_wait_seconds(
+                _closing_trigger_wait_seconds(trigger, _active_protected_jobs())
+            )
             logger.info(
                 "synthesis_trigger closing active for gen %d; waiting up to %.0fs "
                 "for final STOP_SIGNAL before generation boundary.",
                 gen_id,
                 wait_seconds,
             )
-            try:
-                await asyncio.wait_for(trigger_task, timeout=wait_seconds)
-            except TimeoutError:
+            if not await _bounded_task_wait(trigger_task, wait_seconds):
                 logger.warning(
                     "synthesis_trigger still closing after %.0fs for gen %d; "
                     "cancelling trigger task and falling back to post-gen evaluation.",
@@ -1130,8 +1275,6 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                     gen_id,
                 )
                 await _cancel_trigger_task()
-            except asyncio.CancelledError:
-                pass
         else:
             await _cancel_trigger_task()
         try:
@@ -1142,15 +1285,41 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
             logger.warning("Could not freeze experiment queue after gen %d peers: %s", gen_id, exc)
         _cancel_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
-            await _cancel_task
+            await _bounded_task_wait(_cancel_task, 2.0)
 
         if not trigger.fired:
             try:
-                snap = await trigger.evaluate_async()
-                if st_cfg.enabled and snap.fired:
-                    trigger.fire(snap)
+                if cancelled_error is not None or _research_deadline_expired():
+                    trigger.fire_deadline(
+                        "research_deadline_reached"
+                        if _research_deadline_expired()
+                        else "cohort_cancelled"
+                    )
                 else:
-                    trigger.write_postgen_marker(snap)
+                    remaining = lifecycle.remaining_seconds() if lifecycle is not None else None
+                    if remaining is None:
+                        snap = await trigger.evaluate_async()
+                    else:
+                        evaluation_task = asyncio.create_task(trigger.evaluate_async())
+                        if not await _bounded_task_wait(evaluation_task, remaining):
+                            evaluation_task.cancel()
+                            await _bounded_task_wait(evaluation_task, 0.0)
+                            trigger.fire_deadline("research_deadline_reached")
+                            raise TimeoutError(
+                                "post-generation evaluation reached research deadline"
+                            )
+                        if evaluation_task.cancelled():
+                            raise TimeoutError("post-generation evaluation interrupted")
+                        snap = evaluation_task.result()
+                    if st_cfg.enabled and snap.fired:
+                        trigger.fire(snap)
+                    else:
+                        trigger.write_postgen_marker(snap)
+            except asyncio.CancelledError as exc:
+                # An unbounded evaluation can be interrupted after the cohort
+                # has entered cleanup. Commit peer outputs before propagating it.
+                cancelled_error = exc
+                _interrupt_cohort_tasks()
             except Exception as e:  # noqa: BLE001 - preserve a postmortem marker.
                 logger.debug("post-gen trigger evaluation failed: %s", e)
                 try:
@@ -1166,6 +1335,7 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
+    results = _peer_task_results()
     gen_results = list(prelaunch_results)
     for peer_id, result in zip(started_peer_ids, results, strict=False):
         if isinstance(result, Exception):
@@ -1185,7 +1355,8 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
     gen_results.extend(_late_protected_job_records())
 
     results_file = gen_dir / "generation_results.json"
-    with open(results_file, "w", encoding="utf-8") as f:
-        json.dump(gen_results, f, indent=2, default=str)
+    atomic_write_json(results_file, gen_results)
 
+    if cancelled_error is not None:
+        raise cancelled_error
     return gen_results

@@ -17,8 +17,13 @@ capabilities:
 entrypoint: stage:create_stage
 code:
   - stage.py
+  - stage_budget.py
   - startup.py
+  - startup_authority.py
+  - runtime_preparation.py
   - c5_materializer.py
+  - legacy_output_materializer.py
+  - scoreless_materializer.py
   - backend/**/*.py
 assets:
   - backend/**/*.jinja2

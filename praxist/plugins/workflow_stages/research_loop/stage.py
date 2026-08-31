@@ -14,6 +14,7 @@ from praxist.core.ledgers import BudgetLedger
 from praxist.core.role_skills import RoleSkill, load_role_skill
 from praxist.core.runtimes import close_runtime_for_ref, collect_runtime_usage
 from praxist.core.workflow import WorkflowStageResult, WorkflowStageSpec
+from praxist.plugins.workflow_stages.research_loop.backend.scoreless import is_scoreless
 from praxist.plugins.workflow_stages.research_loop.lifecycle import (
     ResearchRunLifecycleObserver,
 )
@@ -272,17 +273,25 @@ class ResearchLoopStage:
             )
             summary["warnings"] = warnings
             summary["usage_unknown_units"] = missing_usage_units
-            return WorkflowStageResult(
-                stage_id=self.stage_id,
-                status="succeeded",
-                success=True,
-                summary=summary,
-            )
+            result = summary
+        summary_status = str((result or {}).get("status", "succeeded"))
+        success = summary_status not in {"failed", "error", "incomplete", "interrupted"}
+        success = success and (result or {}).get("exit_code", 0) == 0
+        delivery = (result or {}).get("task_delivery") or {}
         return WorkflowStageResult(
             stage_id=self.stage_id,
-            status="succeeded",
-            success=True,
-            summary=result,
+            status="succeeded" if success else summary_status,
+            success=success,
+            output_artifacts=[
+                {
+                    "logical_path": path,
+                    "content_hash": (delivery.get("artifact_hashes") or {}).get(path),
+                    "artifact_status": delivery.get("status"),
+                }
+                for path in delivery.get("artifacts") or []
+            ],
+            summary=result or {},
+            error=None if success else "research loop did not complete task delivery",
         )
 
 
@@ -364,6 +373,10 @@ def _missing_approved_usage_units(
         return ["approved budget payload is invalid"]
     missing = []
     for unit, raw_approved in approved.items():
+        if raw_approved is None:
+            if str(unit) not in actual_usage:
+                missing.append(str(unit))
+            continue
         try:
             approved_amount = float(raw_approved)
         except (TypeError, ValueError):
@@ -377,6 +390,8 @@ def _missing_approved_usage_units(
 def _stage_result_indicates_execution(result: dict[str, Any] | None) -> bool:
     if not isinstance(result, dict):
         return False
+    if result.get("runtime_usage") or result.get("task_delivery"):
+        return True
     for key in (
         "generations_completed",
         "frontier_records",
@@ -395,8 +410,26 @@ def _stage_result_indicates_execution(result: dict[str, Any] | None) -> bool:
     return isinstance(usage, dict) and bool(usage)
 
 
-def planned_research_loop_usage(task_spec: Any) -> dict[str, float]:
-    """Return the canonical planned usage for grant and stage validation."""
+def uncapped_research_loop_budget(task_spec: Any) -> bool:
+    """Return whether a scoreless task has no finite total execution envelope.
+
+    Args:
+        task_spec: Validated task specification selected by the controller.
+
+    Returns:
+        Whether generation count or per-generation wall time is explicitly absent.
+    """
+    return is_scoreless(task_spec) and (
+        task_spec.generation_policy.max_generations is None
+        or task_spec.generation_policy.per_generation_hours is None
+    )
+
+
+def planned_research_loop_usage(task_spec: Any) -> dict[str, float | None]:
+    """Return planned limits, with None denoting uncapped and unestimated units."""
+
+    if uncapped_research_loop_budget(task_spec):
+        return {"tokens": None, "wall_clock_seconds": None, "gpu_hours": None}
 
     max_generations = max(1, int(task_spec.generation_policy.max_generations))
     cohort_size = max(1, int(task_spec.generation_policy.cohort_size))
@@ -415,18 +448,24 @@ def planned_research_loop_usage(task_spec: Any) -> dict[str, float]:
     }
 
 
-def _planned_usage_for_task_spec(task_spec: Any) -> dict[str, float]:
+def _planned_usage_for_task_spec(task_spec: Any) -> dict[str, float | None]:
     try:
         return planned_research_loop_usage(task_spec)
     except (AttributeError, TypeError, ValueError):
         return {}
 
 
-def _budget_shortfalls(*, planned: dict[str, float], approved: dict[str, Any]) -> list[str]:
+def _budget_shortfalls(*, planned: dict[str, float | None], approved: dict[str, Any]) -> list[str]:
     shortfalls: list[str] = []
     if not isinstance(approved, dict):
         return ["approved budget payload is invalid"]
     for unit, planned_amount in planned.items():
+        if planned_amount is None:
+            if unit not in approved or approved[unit] is not None:
+                shortfalls.append(f"{unit} requires an uncapped grant")
+            continue
+        if unit in approved and approved[unit] is None:
+            continue
         try:
             approved_amount = float(approved.get(unit, 0.0))
         except (TypeError, ValueError):

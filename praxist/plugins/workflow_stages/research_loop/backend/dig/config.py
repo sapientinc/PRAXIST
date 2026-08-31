@@ -32,6 +32,12 @@ def _int_value(raw: Any, default: int, minimum: int | None = None) -> int:
     return value
 
 
+def _optional_limit(raw: Any, default: int, minimum: int, *, scoreless: bool) -> int | None:
+    if scoreless and raw is None:
+        return None
+    return _int_value(raw, default, minimum)
+
+
 def _float_value(raw: Any, default: float, minimum: float | None = None) -> float:
     try:
         value = float(raw)
@@ -220,15 +226,15 @@ class DIGLiteConfig:
     candidate_count: int = 8
     min_mechanism_families: int = 4
     min_intervention_surfaces: int = 3
-    max_refinement_rounds: int = 1
+    max_refinement_rounds: int | None = 1
     planner_allowed_tools: list[str] = field(default_factory=lambda: ["Read", "Grep", "Glob"])
     planner_permission_mode: str = "acceptEdits"
-    planner_max_runtime_minutes: int = 10
-    attempt_max_runtime_minutes: int = 0
+    planner_max_runtime_minutes: int | None = 10
+    attempt_max_runtime_minutes: int | None = 0
     allowed_file_rules: list[str] = field(default_factory=list)
     disallowed_file_rules: list[str] = field(default_factory=list)
-    max_total_runtime_minutes: int = 40
-    max_attempts: int = 10
+    max_total_runtime_minutes: int | None = 40
+    max_attempts: int | None = 10
     fallback_to_direct_on_failure: bool = True
     strict: bool = True
     inject_contract_into_prompt: bool = True
@@ -247,11 +253,18 @@ class DIGLiteConfig:
         return self.generation_scope == "all" or int(generation_id) == 0
 
     @classmethod
-    def from_raw(cls, raw: Any) -> DIGLiteConfig:
-        if raw is None:
-            return cls(enabled=False)
+    def from_raw(cls, raw: Any, *, scoreless: bool = False) -> DIGLiteConfig:
+        """Parse DIG settings, leaving omitted scoreless limits unbounded.
+
+        Args:
+            raw: Task-local DIG configuration mapping.
+            scoreless: Whether absent or null execution limits mean no cap.
+
+        Returns:
+            Normalized configuration with legacy metric defaults preserved.
+        """
         if not isinstance(raw, dict):
-            return cls(enabled=False)
+            raw = {"enabled": False}
 
         critique_raw = raw.get("critique") if isinstance(raw.get("critique"), dict) else {}
         diversity_raw = raw.get("diversity") if isinstance(raw.get("diversity"), dict) else {}
@@ -293,8 +306,8 @@ class DIGLiteConfig:
             min_intervention_surfaces=_int_value(
                 raw.get("min_intervention_surfaces"), defaults.min_intervention_surfaces, 1
             ),
-            max_refinement_rounds=_int_value(
-                raw.get("max_refinement_rounds"), defaults.max_refinement_rounds, 0
+            max_refinement_rounds=_optional_limit(
+                raw.get("max_refinement_rounds"), 1, 0, scoreless=scoreless
             ),
             planner_allowed_tools=_str_list(
                 raw.get("planner_allowed_tools"), defaults.planner_allowed_tools
@@ -302,15 +315,17 @@ class DIGLiteConfig:
             planner_permission_mode=str(
                 raw.get("planner_permission_mode") or defaults.planner_permission_mode
             ),
-            planner_max_runtime_minutes=_int_value(
+            planner_max_runtime_minutes=_optional_limit(
                 raw.get("planner_max_runtime_minutes"),
-                defaults.planner_max_runtime_minutes,
+                10,
                 1,
+                scoreless=scoreless,
             ),
-            attempt_max_runtime_minutes=_int_value(
+            attempt_max_runtime_minutes=_optional_limit(
                 raw.get("attempt_max_runtime_minutes"),
-                defaults.attempt_max_runtime_minutes,
                 0,
+                0,
+                scoreless=scoreless,
             ),
             allowed_file_rules=_str_list(
                 raw.get("allowed_file_rules"), defaults.allowed_file_rules
@@ -318,12 +333,13 @@ class DIGLiteConfig:
             disallowed_file_rules=_str_list(
                 raw.get("disallowed_file_rules"), defaults.disallowed_file_rules
             ),
-            max_total_runtime_minutes=_int_value(
+            max_total_runtime_minutes=_optional_limit(
                 raw.get("max_total_runtime_minutes"),
-                defaults.max_total_runtime_minutes,
+                40,
                 1,
+                scoreless=scoreless,
             ),
-            max_attempts=_int_value(raw.get("max_attempts"), defaults.max_attempts, 1),
+            max_attempts=_optional_limit(raw.get("max_attempts"), 10, 1, scoreless=scoreless),
             fallback_to_direct_on_failure=_bool_value(
                 raw.get("fallback_to_direct_on_failure"),
                 defaults.fallback_to_direct_on_failure,

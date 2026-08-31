@@ -38,7 +38,9 @@ def _linux_process_group_activity(pgid: int) -> bool | None:
     result when procfs is unavailable or no member can be observed.
     """
 
-    if sys.platform != "linux":
+    # Keep the procfs parser type-checked on non-Linux development hosts.
+    platform_name: str = sys.platform
+    if platform_name != "linux":
         return None
     proc_root = Path("/proc")
     if not proc_root.is_dir():
