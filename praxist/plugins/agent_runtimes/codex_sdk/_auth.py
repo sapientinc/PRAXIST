@@ -54,16 +54,18 @@ _PROBE_ENV_KEYS = frozenset(
 
 @dataclass
 class StagedChatgptHome:
-    """Private, disposable Codex home containing only runtime authentication."""
+    """Codex home preserving auth identity without sharing file-backed state."""
 
     path: Path
     credential_store: str
     credential_key_id: str
+    remove_on_close: bool = True
 
     def close(self) -> None:
-        """Remove the staged credential and all app-server-owned scratch state."""
+        """Remove disposable authentication state owned by this instance."""
 
-        shutil.rmtree(self.path, ignore_errors=True)
+        if self.remove_on_close:
+            shutil.rmtree(self.path, ignore_errors=True)
 
 
 def discover_chatgpt_credential(
@@ -140,18 +142,28 @@ def chatgpt_credential_key_id(codex_home: Path) -> str:
 
 
 def stage_chatgpt_home(codex_home: Path) -> StagedChatgptHome:
-    """Stage saved auth in a private home so Codex cannot mutate operator state."""
+    """Resolve a safe runtime home without changing the saved-auth identity."""
 
     source_home = codex_home.resolve()
     snapshot = _read_chatgpt_file_auth(source_home)
     source = "file" if snapshot is not None else "keyring"
     account_id = snapshot[1] if snapshot is not None else None
+    credential_key_id = _credential_key_id(source_home, source, account_id)
+    if snapshot is None:
+        # Codex derives its keyring lookup key from canonical CODEX_HOME.
+        return StagedChatgptHome(
+            path=source_home,
+            credential_store=source,
+            credential_key_id=credential_key_id,
+            remove_on_close=False,
+        )
+
     path = Path(tempfile.mkdtemp(prefix="praxist-codex-auth-"))
     path.chmod(0o700)
     staged = StagedChatgptHome(
         path=path,
         credential_store=source,
-        credential_key_id=_credential_key_id(source_home, source, account_id),
+        credential_key_id=credential_key_id,
     )
     try:
         if snapshot is not None:
