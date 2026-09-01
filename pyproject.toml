@@ -145,7 +145,6 @@ project-excludes = [
     "old",
     "templates",
     "praxist/core/modeling.py",
-    "praxist/core/redaction.py",
     "praxist/core/replay.py",
     "praxist/core/role_skills.py",
     "praxist/core/tool_servers.py",
