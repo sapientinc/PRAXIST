@@ -97,6 +97,8 @@ from praxist.cli.registry import (
     write_entry,
 )
 from praxist.cli.status import pid_is_alive, read_ps_table, registry_command_matches
+from praxist.core.cloudflare import CLOUDFLARE_DEFAULT_MODEL as CLOUDFLARE_MODEL
+from praxist.core.cloudflare import CLOUDFLARE_PROVIDER
 from praxist.task_spec import load_task_spec
 
 if TYPE_CHECKING:  # pragma: no cover - import only for static type checkers
@@ -130,11 +132,13 @@ ORCAROUTER_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["orcarouter"]
 ANTHROPIC_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["anthropic"]
 OPENAI_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["openai"]
 DEEPSEEK_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["deepseek"]
+CLOUDFLARE_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME[CLOUDFLARE_PROVIDER]
 
 OPENROUTER_DEFAULT_MODEL = "anthropic/claude-opus-4.7"
 ORCAROUTER_DEFAULT_MODEL = "orcarouter/auto"
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-7"
 DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro[1m]"
+CLOUDFLARE_DEFAULT_MODEL = CLOUDFLARE_MODEL
 
 # Back-compat alias retained so callers that imported the old constant
 # from previous PRs keep working until they migrate to
@@ -848,6 +852,8 @@ def _resolve_model(raw: str | None, provider_ref: str, agent_system: str) -> str
         return ORCAROUTER_DEFAULT_MODEL
     if provider_ref == DEEPSEEK_PROVIDER_REF:
         return DEEPSEEK_DEFAULT_MODEL
+    if provider_ref == CLOUDFLARE_PROVIDER_REF:
+        return CLOUDFLARE_DEFAULT_MODEL
     if provider_ref == ANTHROPIC_PROVIDER_REF:
         return ANTHROPIC_DEFAULT_MODEL
     return ""

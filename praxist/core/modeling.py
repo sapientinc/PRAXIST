@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from praxist.core.cloudflare import CLOUDFLARE_API_FORMAT
 from praxist.core.credentials import CredentialRef
 from praxist.core.protocol import ModelCallSpec, ModelProfile, ModelResult
 from praxist.core.registry import (
@@ -61,8 +62,13 @@ def normalize_model_for_provider(
 
 
 def _normalize_model_for_api_format(model: str, api_format: str) -> str:
-    """Strip a ``vendor/`` prefix when the api_format does not use one."""
-    if not model or api_format in {"openrouter", "orcarouter"}:
+    """Strip a ``vendor/`` prefix when the api_format does not use one.
+
+    ``cloudflare_workers_ai`` keeps the whole name: Workers AI model ids are
+    full ``@cf/vendor/model`` paths, so splitting on the first ``/`` would
+    corrupt them. OpenRouter and OrcaRouter likewise retain ``vendor/model``.
+    """
+    if not model or api_format in {"openrouter", "orcarouter", CLOUDFLARE_API_FORMAT}:
         return model
     if "/" in model:
         return model.split("/", 1)[1]

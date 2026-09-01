@@ -56,6 +56,7 @@ class CredentialResolver:
             "model_provider:openai_compatible",
         ),
         ("DEEPSEEK_API_KEY", "model_provider", "deepseek_alias", "model_provider:deepseek_alias"),
+        ("CLOUDFLARE_API_KEY", "model_provider", "cloudflare", "model_provider:cloudflare"),
         (
             "SEMANTIC_SCHOLAR_API_KEY",
             "tool_server",

@@ -14,6 +14,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from praxist.core.cloudflare import (
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER,
+    workers_ai_base_url,
+)
+
 _PROVIDER_UPSTREAMS = {
     "deepseek": "https://api.deepseek.com/v1",
     "openrouter": "https://openrouter.ai/api/v1",
@@ -24,6 +30,8 @@ _PROVIDER_UPSTREAMS = {
     "mistral": "https://api.mistral.ai/v1",
     "groq": "https://api.groq.com/openai/v1",
     "xai": "https://api.x.ai/v1",
+    # Cloudflare is account-scoped and resolved at call time by
+    # ``provider_upstream``; it has no static entry here.
 }
 
 _PROVIDER_KEY_VARS = {
@@ -36,6 +44,7 @@ _PROVIDER_KEY_VARS = {
     "mistral": "MISTRAL_API_KEY",
     "groq": "GROQ_API_KEY",
     "xai": "XAI_API_KEY",
+    CLOUDFLARE_PROVIDER: CLOUDFLARE_KEY_VAR,
 }
 
 
@@ -79,6 +88,18 @@ def needs_relay(provider: str) -> bool:
     return provider not in {"", "openai"}
 
 
+def provider_upstream(provider: str) -> str | None:
+    """Return the OpenAI-compatible upstream base URL for a relay provider.
+
+    Cloudflare Workers AI is account-scoped, so its upstream is interpolated
+    from the environment rather than read from the static table.
+    """
+
+    if provider == CLOUDFLARE_PROVIDER:
+        return workers_ai_base_url()
+    return _PROVIDER_UPSTREAMS.get(provider)
+
+
 def provider_key_var(provider: str) -> str:
     """Return the credential environment variable for a provider."""
 
@@ -101,7 +122,10 @@ def start_relay(
         raise RuntimeError(
             "codex-relay is required for this model provider; install praxist[codex]"
         )
-    upstream = _PROVIDER_UPSTREAMS.get(provider)
+    try:
+        upstream = provider_upstream(provider)
+    except ValueError as exc:
+        raise RuntimeError(f"provider {provider!r} upstream is unavailable: {exc}") from exc
     if upstream is None:
         raise RuntimeError(f"Codex SDK relay does not support provider {provider!r}")
     if not api_key:
@@ -189,6 +213,7 @@ def _wait_for_listener(
 __all__ = [
     "RelayHandle",
     "needs_relay",
+    "provider_upstream",
     "provider_key_var",
     "provider_name",
     "start_relay",
