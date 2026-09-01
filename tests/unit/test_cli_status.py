@@ -314,6 +314,45 @@ class StatusMergeTest(unittest.TestCase):
         self.assertEqual(row.model, "claude-opus-4-7")
         self.assertEqual(row.state, "running")
 
+    def test_daemonized_registry_row_with_missing_etime_stays_live(self) -> None:
+        from praxist.cli import status
+
+        run_id = self._seed_registry(
+            command=(
+                "python",
+                "-m",
+                "praxist.run",
+                "run",
+                "--task-path",
+                "/t",
+                "--run-dir",
+                "/tmp/status_demo",
+            ),
+        )
+        ps_output = (
+            "    PID    PPID  ELAPSED COMMAND\n"
+            "   8000       0 python -m praxist.run run --task-path /t --run-dir /tmp/status_demo\n"
+        )
+        with (
+            patch("praxist.cli.status.shutil.which", return_value="/bin/ps"),
+            patch(
+                "praxist.cli.status.subprocess.run",
+                return_value=_fake_ps_completed(ps_output),
+            ),
+            patch.object(os, "getpid", return_value=99998),
+            patch.object(os, "getppid", return_value=99999),
+        ):
+            rows = status.collect_status_rows(include_peer_health=False)
+
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row.run_id, run_id)
+        self.assertEqual(row.source, status.SOURCE_REGISTRY)
+        self.assertEqual(row.state, "running")
+        self.assertEqual(row.ppid, 0)
+        self.assertEqual(row.etime, "-")
+        self.assertIn("python -m praxist.run", row.command)
+
     def test_live_process_with_stopped_registry_is_inconsistent(self) -> None:
         from praxist.cli import registry, status
 
