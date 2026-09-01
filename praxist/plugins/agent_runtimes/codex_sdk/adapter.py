@@ -106,6 +106,7 @@ _MODEL_CREDENTIAL_ENV_KEYS = frozenset(
     {
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
+        "CLOUDFLARE_API_KEY",
         "DASHSCOPE_API_KEY",
         "DEEPSEEK_API_KEY",
         "GROQ_API_KEY",
