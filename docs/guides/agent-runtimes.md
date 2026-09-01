@@ -130,6 +130,7 @@ The Codex app-server consumes the Responses protocol. API provider routing is:
 | OpenAI / `model_provider:openai_compatible` | Direct SDK/app-server connection |
 | `model_provider:deepseek_alias` | Private run-scoped `codex-relay` to DeepSeek Chat Completions |
 | `model_provider:openrouter` | Private run-scoped `codex-relay` to OpenRouter Chat Completions |
+| `model_provider:cloudflare` | Private run-scoped `codex-relay` to Cloudflare Workers AI Chat Completions |
 
 Praxist starts and stops the relay; operators must not launch a relay per peer.
 The relay listens only on an ephemeral local port and receives only the selected

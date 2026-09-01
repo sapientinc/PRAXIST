@@ -18,6 +18,8 @@ This page documents executable generic plugin boundaries.
 
 ::: praxist.plugins.model_providers.deepseek_alias.adapter
 
+::: praxist.plugins.model_providers.cloudflare.adapter
+
 ## Workflow Stage
 
 ::: praxist.plugins.workflow_stages.research_loop.startup
