@@ -9,6 +9,13 @@ from __future__ import annotations
 
 import os
 
+from praxist.core.cloudflare import (
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER,
+    CLOUDFLARE_PROVIDER_REF,
+    workers_ai_base_url,
+)
+
 AGENT_SYSTEM_VALUES: tuple[str, ...] = (
     "claude_sdk",
     "codex_sdk",
@@ -37,6 +44,7 @@ PROVIDER_KEY_MAP: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "xai": "XAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    CLOUDFLARE_PROVIDER: CLOUDFLARE_KEY_VAR,
     "brave": "BRAVE_API_KEY",
 }
 """Known provider/tool credentials accepted by Praxist operator configuration."""
@@ -46,6 +54,7 @@ PROVIDER_REF_FOR_SHORT_NAME: dict[str, str] = {
     "openai": "model_provider:openai_compatible",
     "openrouter": "model_provider:openrouter",
     "deepseek": "model_provider:deepseek_alias",
+    CLOUDFLARE_PROVIDER: CLOUDFLARE_PROVIDER_REF,
 }
 """Canonical plugin ref for every built-in model provider."""
 
@@ -83,3 +92,15 @@ def agent_system_for_runtime_ref(runtime_ref: str) -> str | None:
         if normalized == candidate:
             return agent_system
     return None
+
+
+def provider_base_url(provider: str) -> str:
+    """Return the OpenAI-compatible base URL for a built-in provider.
+
+    Cloudflare Workers AI is account-scoped, so its URL is resolved at call
+    time from the environment instead of being a static table entry.
+    """
+    normalized = provider.strip().lower()
+    if normalized == CLOUDFLARE_PROVIDER:
+        return workers_ai_base_url()
+    return PROVIDER_BASE_URL.get(normalized, "")

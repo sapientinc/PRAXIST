@@ -1,0 +1,40 @@
+schema_version: 1
+name: cloudflare
+kind: model_provider
+version: 0.1.0
+protocol_version: 1
+stability: experimental
+description: Cloudflare Workers AI OpenAI-compatible provider serving DeepSeek models.
+compatibility:
+  praxist_core: ">=0.1.0,<1.0"
+  python: ">=3.11"
+dependencies: []
+capabilities:
+  - provider.openai_compatible
+  - provider.cloudflare
+provider:
+  # Workers AI speaks OpenAI chat-completions at
+  # ``/client/v4/accounts/{account_id}/ai/v1`` and publishes no Anthropic
+  # Messages route, so this provider rides the OpenAI-compatible client and
+  # only swaps base URL + bearer token. The account id is part of the URL,
+  # not the credential, and is interpolated from CLOUDFLARE_ACCOUNT_ID by
+  # ``praxist.core.cloudflare.workers_ai_base_url``.
+  #
+  # ``cloudflare_workers_ai`` is a distinct api_format purely so model-name
+  # normalization keeps the full ``@cf/vendor/model`` id; the generic
+  # openai_compatible format strips everything before the first ``/`` and
+  # would turn ``@cf/deepseek-ai/deepseek-v4-flash-0731`` into
+  # ``deepseek-ai/deepseek-v4-flash-0731``, which Workers AI rejects.
+  api_format: cloudflare_workers_ai
+  default_model: "@cf/deepseek-ai/deepseek-v4-flash-0731"
+  cache_strategy: provider_default
+  usage_reporting: usage_or_usage_unknown
+  model_profiles:
+    cheap_peer: "@cf/deepseek-ai/deepseek-v4-flash-0731"
+    strong_reasoner: "@cf/deepseek-ai/deepseek-v4-pro-0813"
+  compatible_model_patterns:
+    - "@cf/*"
+entrypoint: adapter:create_provider
+code:
+  - adapter.py
+assets: []
