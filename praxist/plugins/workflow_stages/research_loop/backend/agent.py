@@ -26,6 +26,12 @@ from praxist.config import (
     S3_RESULTS_PREFIX as _S3_RESULTS_PREFIX_DEFAULT,
 )
 from praxist.core.cache import build_cache_policy
+from praxist.core.cloudflare import (
+    CLOUDFLARE_ACCOUNT_VAR,
+    CLOUDFLARE_BASE_URL_VAR,
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER_REF,
+)
 from praxist.core.credentials import CredentialRef, provider_name_from_ref
 from praxist.core.modeling import default_model_profile
 from praxist.core.prompt_layout import (
@@ -645,6 +651,16 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
             "CLAUDE_CODE_EFFORT_LEVEL",
             "DEEPSEEK_API_KEY",
         )
+    elif provider_ref == CLOUDFLARE_PROVIDER_REF:
+        # Workers AI reaches the Codex runtime through the relay, which reads
+        # the bearer from CLOUDFLARE_API_KEY/OPENAI_API_KEY and interpolates
+        # the account-scoped upstream from CLOUDFLARE_ACCOUNT_ID.
+        allowed = (
+            CLOUDFLARE_KEY_VAR,
+            "OPENAI_API_KEY",
+            CLOUDFLARE_ACCOUNT_VAR,
+            CLOUDFLARE_BASE_URL_VAR,
+        )
     elif provider_ref == "model_provider:fake_provider":
         allowed = ()
     else:
@@ -680,6 +696,11 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
             if provider_ref == "model_provider:orcarouter" and var == "ANTHROPIC_BASE_URL":
                 val = normalize_orcarouter_base_url(val)
             env[var] = val
+    if provider_ref == CLOUDFLARE_PROVIDER_REF:
+        cloudflare_key = os.environ.get(CLOUDFLARE_KEY_VAR, "")
+        if cloudflare_key:
+            env[CLOUDFLARE_KEY_VAR] = cloudflare_key
+            env["OPENAI_API_KEY"] = cloudflare_key
     if provider_ref == "model_provider:deepseek_alias":
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
         if deepseek_key:
