@@ -11,6 +11,23 @@ Agent runtime plugins execute the agent loops.
 - `model_provider:openai_compatible` for OpenAI-compatible endpoints.
 - `model_provider:anthropic_messages` for native Anthropic Messages style.
 - `model_provider:deepseek_alias` for DeepSeek-compatible aliases.
+- `model_provider:cloudflare` for Cloudflare Workers AI.
+
+### Cloudflare Workers AI
+
+Workers AI is OpenAI-compatible only; it publishes no Anthropic Messages
+route, so it is compatible with `agent_runtime:codex_sdk` and not with
+`agent_runtime:claude_sdk`. Its endpoint base is account-scoped rather than
+fixed: `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1`,
+interpolated from `CLOUDFLARE_ACCOUNT_ID`. Set `CLOUDFLARE_BASE_URL` to
+override the whole base URL, and `CLOUDFLARE_API_KEY` for the bearer
+credential.
+
+The manifest declares the `cloudflare_workers_ai` API format rather than
+`openai_compatible` for one reason: Workers AI model ids are full
+`@cf/vendor/model` paths, and the generic OpenAI-compatible normalization
+strips everything before the first `/`. The wire protocol is otherwise
+plain OpenAI chat-completions.
 
 API provider names represent API format and routing. A task or operator may
 override the `ModelProfile` used by a stage.
