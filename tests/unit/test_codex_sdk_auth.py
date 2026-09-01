@@ -390,18 +390,19 @@ class ChatGptCredentialDiscoveryTest(unittest.TestCase):
                 staged.close()
             self.assertFalse(staged_path.exists())
 
-    def test_keyring_auth_uses_empty_private_home(self) -> None:
+    def test_keyring_auth_preserves_operator_home_as_lookup_identity(self) -> None:
         from praxist.plugins.agent_runtimes.codex_sdk._auth import stage_chatgpt_home
 
         with tempfile.TemporaryDirectory() as tmp:
-            staged = stage_chatgpt_home(Path(tmp))
-            staged_path = staged.path
-            try:
-                self.assertEqual(staged.credential_store, "keyring")
-                self.assertEqual(list(staged_path.iterdir()), [])
-            finally:
-                staged.close()
-            self.assertFalse(staged_path.exists())
+            operator_home = Path(tmp)
+            marker = operator_home / "config.toml"
+            marker.write_text('model = "operator-default"\n', encoding="utf-8")
+            staged = stage_chatgpt_home(operator_home)
+
+            self.assertEqual(staged.path, operator_home)
+            self.assertEqual(staged.credential_store, "keyring")
+            staged.close()
+            self.assertEqual(marker.read_text(encoding="utf-8"), 'model = "operator-default"\n')
 
 
 class CodexSdkRuntimeCredentialHookTest(unittest.TestCase):
@@ -459,7 +460,9 @@ class ChatGptModelCatalogTest(unittest.TestCase):
     def test_catalog_uses_private_staged_auth_and_closes_resources(self) -> None:
         from praxist.plugins.agent_runtimes.codex_sdk import adapter
 
-        staged = types.SimpleNamespace(path=Path("/private/codex"), close=Mock())
+        staged = types.SimpleNamespace(
+            path=Path("/private/codex"), credential_store="file", close=Mock()
+        )
         response = types.SimpleNamespace(
             data=[
                 types.SimpleNamespace(model="gpt-5.6-luna"),
@@ -468,6 +471,9 @@ class ChatGptModelCatalogTest(unittest.TestCase):
             ]
         )
         client = Mock()
+        client.account.return_value = types.SimpleNamespace(
+            account=types.SimpleNamespace(root=types.SimpleNamespace(type="chatgpt"))
+        )
         client.models.return_value = response
         config = object()
         sdk = {
@@ -488,7 +494,41 @@ class ChatGptModelCatalogTest(unittest.TestCase):
 
         self.assertEqual(models, ("gpt-5.4", "gpt-5.6-luna"))
         verify_login.assert_called_once_with()
+        client.account.assert_called_once_with(refresh_token=False)
         client.models.assert_called_once_with(include_hidden=False)
+        self.assertIn(
+            'cli_auth_credentials_store="file"',
+            sdk["CodexConfig"].call_args.kwargs["config_overrides"],
+        )
+        client.close.assert_called_once_with()
+        staged.close.assert_called_once_with()
+
+    def test_catalog_rejects_non_chatgpt_app_server_account(self) -> None:
+        from praxist.plugins.agent_runtimes.codex_sdk import adapter
+
+        staged = types.SimpleNamespace(
+            path=Path("/operator/codex"), credential_store="keyring", close=Mock()
+        )
+        client = Mock()
+        client.account.return_value = types.SimpleNamespace(
+            account=types.SimpleNamespace(root=types.SimpleNamespace(type="apiKey"))
+        )
+        sdk = {
+            "Codex": Mock(return_value=client),
+            "CodexConfig": Mock(return_value=object()),
+        }
+        with (
+            patch.object(adapter, "verify_chatgpt_login"),
+            patch.object(adapter, "operator_codex_home", return_value=staged.path),
+            patch.object(adapter, "stage_chatgpt_home", return_value=staged),
+            patch.object(adapter, "resolve_codex_binary", return_value="/sdk/codex"),
+            patch.object(adapter, "_client_process_env", return_value={}),
+            patch.object(adapter, "_load_sdk", return_value=sdk),
+            self.assertRaisesRegex(RuntimeError, "model catalog"),
+        ):
+            adapter.available_chatgpt_models()
+
+        client.models.assert_not_called()
         client.close.assert_called_once_with()
         staged.close.assert_called_once_with()
 
