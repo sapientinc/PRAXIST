@@ -10,6 +10,30 @@ task projects physically separate.
 - `docs/concepts/architecture.md` is the active architecture overview.
 - `docs/index.md` is the source documentation entry.
 
+## Good First Contributions
+
+New contributors who are not yet familiar with the system's architecture are encouraged to start with well-scoped, low-risk changes. The following areas are suitable for a first contribution, particularly when no open issues are available.
+
+### Recommended starter lanes
+
+- **Graduate one small file from Pyrefly excludes**: Identify a file currently excluded from Pyrefly static checks, address the underlying issues, and re-enable checking.
+- **Add focused tests around existing contracts**: Improve test coverage for a specific module or function without altering its behavior.
+- **Improve generated-reference consistency checks**: Enhance the tooling that verifies cross-references in the documentation.
+- **Fix documentation links or wording**: Correct broken links or improve clarity, while respecting the one-fact-one-owner policy.
+- **Add plugin-local tests for existing generic plugins**: Write tests that verify plugin behavior in isolation.
+
+### Areas to avoid for first contributions
+
+The following areas involve core architectural surfaces and require deep system understanding. They are not recommended for first-time contributors:
+
+- Startup semantics
+- Credential selection
+- Runtime invocation
+- Resume boundaries
+- Workflow-stage behavior
+
+For a detailed explanation of these and other high-risk areas, refer to the [What Requires Extra Care](#what-requires-extra-care) section below.
+
 ## Default Change Flow
 
 1. Identify whether the change belongs to core, a generic plugin, a task template,
