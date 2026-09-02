@@ -662,6 +662,81 @@ class LaunchRunTest(unittest.TestCase):
             )
         self.assertIn("--resume-from and --run-dir", str(cm.exception))
 
+    def test_fresh_run_dir_rejects_preexisting_run_artifacts_with_resume_guidance(self) -> None:
+        from praxist.cli import start
+
+        task = _make_task_dir(Path(self.workspace.name), name="existing_artifacts_task")
+        run_dir = Path(self.workspace.name) / "existing_artifacts_run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "run.json").write_text("{}", encoding="utf-8")
+        with self.assertRaises(start.StartError) as cm:
+            start.launch_run(
+                task_path=str(task),
+                run_dir=str(run_dir),
+                model=None,
+                model_provider_ref=None,
+                frontier_strategy="auto",
+                cohort=None,
+                generations=None,
+                server=False,
+                resume=False,
+                spawn=MagicMock(return_value=_FakeProc()),
+            )
+        self.assertIn("fresh run directory is not empty", str(cm.exception))
+        self.assertIn("Choose another --run-dir or use --resume-from.", str(cm.exception))
+
+    def test_fresh_run_dir_rejects_unrelated_nonempty_directory_without_resume_guidance(
+        self,
+    ) -> None:
+        from praxist.cli import start
+
+        task = _make_task_dir(Path(self.workspace.name), name="unrelated_nonempty_task")
+        run_dir = Path(self.workspace.name) / "unrelated_nonempty_run"
+        run_dir.mkdir(parents=True)
+        (run_dir / "user_notes.txt").write_text("notes", encoding="utf-8")
+        with self.assertRaises(start.StartError) as cm:
+            start.launch_run(
+                task_path=str(task),
+                run_dir=str(run_dir),
+                model=None,
+                model_provider_ref=None,
+                frontier_strategy="auto",
+                cohort=None,
+                generations=None,
+                server=False,
+                resume=False,
+                spawn=MagicMock(return_value=_FakeProc()),
+            )
+        self.assertIn("fresh run directory is not empty", str(cm.exception))
+        self.assertIn("Choose another --run-dir.", str(cm.exception))
+        self.assertNotIn("--resume-from", str(cm.exception))
+
+    def test_fresh_run_dir_allows_ignorable_precreated_paths(self) -> None:
+        from praxist.cli import start
+
+        task = _make_task_dir(Path(self.workspace.name), name="ignorable_paths_task")
+        run_dir = Path(self.workspace.name) / "ignorable_paths_run"
+        run_dir.mkdir(parents=True)
+        (run_dir / ".gitkeep").write_text("", encoding="utf-8")
+        (run_dir / ".DS_Store").write_text("", encoding="utf-8")
+        logs_dir = run_dir / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "launcher.nohup.log").write_text("", encoding="utf-8")
+
+        entry = start.launch_run(
+            task_path=str(task),
+            run_dir=str(run_dir),
+            model=None,
+            model_provider_ref=None,
+            frontier_strategy="auto",
+            cohort=None,
+            generations=None,
+            server=False,
+            resume=False,
+            spawn=MagicMock(return_value=_FakeProc()),
+        )
+        self.assertEqual(Path(entry.run_dir), run_dir.resolve())
+
     def test_server_flag_drops_local_arg(self) -> None:
         from praxist.cli import start
 
@@ -1363,7 +1438,7 @@ class StartCliEndToEndTest(unittest.TestCase):
         self.assertIn("praxist --monitor --run-id", err)
 
     def test_dispatcher_hint_shell_quotes_explicit_run_dir(self) -> None:
-        run_dir = Path(self.workspace.name) / "run with spaces;printf unsafe"
+        run_dir = (Path(self.workspace.name) / "run with spaces;printf unsafe").resolve()
         code, out, err = self._run(
             ["start", "--task-path", str(self.task), "--run-dir", str(run_dir)]
         )

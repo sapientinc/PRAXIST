@@ -436,11 +436,42 @@ def launch_run(
         raise StartError("--resume requires --run-dir or --resume-from.")
     resolved_run_dir = resume_from_path or _resolve_run_dir(run_dir, resolved_task_path, now)
     resume_enabled = bool(resume or resume_from_path is not None)
-    if not resume_enabled and resolved_run_dir.exists() and any(resolved_run_dir.iterdir()):
-        raise StartError(
-            f"fresh run directory is not empty: {resolved_run_dir}. "
-            "Choose another --run-dir or use --resume-from."
-        )
+    if not resume_enabled and resolved_run_dir.exists():
+        blocking_paths = [
+            path for path in resolved_run_dir.iterdir() if not _is_ignorable_precreated_path(path)
+        ]
+        if blocking_paths:
+            has_artifacts = any(
+                (resolved_run_dir / rel).exists()
+                for rel in (
+                    "run.json",
+                    "startup_config.json",
+                    "trajectory.jsonl",
+                    "budget_ledger.jsonl",
+                    "artifact_index.jsonl",
+                    "run_summary.json",
+                    "plugin_resolution.json",
+                    "effective_task_spec.yaml",
+                    "model_profiles.json",
+                    "cache_policy.json",
+                    "task_project_manifest.json",
+                    "credentials_redacted.json",
+                    "findings",
+                    "frontier",
+                    "agendas",
+                    "memory",
+                    "gems",
+                    "gen_0",
+                )
+            )
+            if has_artifacts:
+                raise StartError(
+                    f"fresh run directory is not empty: {resolved_run_dir}. "
+                    "Choose another --run-dir or use --resume-from."
+                )
+            raise StartError(
+                f"fresh run directory is not empty: {resolved_run_dir}. Choose another --run-dir."
+            )
     run_id = resolved_run_dir.name
     startup_baseline = _startup_artifact_signatures(resolved_run_dir)
     log_file = resolved_run_dir / "logs" / "launcher.nohup.log"
@@ -1414,3 +1445,13 @@ def operator_text(value: object) -> str:
         else:
             output.append(char)
     return "".join(output)
+
+
+def _is_ignorable_precreated_path(path: Path) -> bool:
+    if path.is_file():
+        return path.name in {".DS_Store", ".gitkeep"}
+    if path.is_dir():
+        if path.name == "logs":
+            return all(child.name in {".gitkeep", "launcher.nohup.log"} for child in path.iterdir())
+        return not any(path.iterdir())
+    return False

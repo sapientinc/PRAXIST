@@ -616,10 +616,94 @@ class ResearchLoopResumeContractsTest(unittest.TestCase):
             (run_dir / "run.json").write_text("{}", encoding="utf-8")
             (run_dir / "startup_config.json").write_text("{}", encoding="utf-8")
 
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 startup._ensure_fresh_run_dir(run_dir)
+            self.assertIn("already contains Praxist run artifacts", str(cm.exception))
+            self.assertIn("Use --resume or --resume-from", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
 
             startup._ensure_fresh_run_dir(run_dir, resume=True)
+
+    def test_startup_non_resume_distinguishes_run_artifacts_from_unrelated_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dir_with_unrelated = Path(tmp) / "unrelated"
+            dir_with_unrelated.mkdir()
+            (dir_with_unrelated / "user_notes.txt").write_text("hello", encoding="utf-8")
+
+            with self.assertRaises(ValueError) as cm:
+                startup._ensure_fresh_run_dir(dir_with_unrelated)
+            self.assertIn("already exists and is not empty", str(cm.exception))
+            self.assertIn("Choose a fresh run directory.", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+            self.assertNotIn("--resume-from", str(cm.exception))
+
+    def test_startup_non_resume_detects_individual_praxist_artifacts(self) -> None:
+        for rel in startup.PRAXIST_RUN_ARTIFACT_REL_PATHS:
+            with tempfile.TemporaryDirectory() as tmp:
+                run_dir = Path(tmp) / "test_run"
+                run_dir.mkdir()
+                artifact_path = run_dir / rel
+                if rel in {"findings", "frontier", "agendas", "memory", "gems", "gen_0"}:
+                    artifact_path.mkdir(parents=True)
+                else:
+                    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                    artifact_path.write_text("{}", encoding="utf-8")
+
+                with self.assertRaises(ValueError) as cm:
+                    startup._ensure_fresh_run_dir(run_dir)
+                self.assertIn("already contains Praxist run artifacts", str(cm.exception))
+                self.assertIn("Use --resume or --resume-from", str(cm.exception))
+                self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+
+    def test_resume_mode_on_missing_or_damaged_artifacts_requires_manual_inspection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            empty_dir = Path(tmp) / "empty"
+            empty_dir.mkdir()
+            with self.assertRaises(ValueError) as cm:
+                startup._ensure_fresh_run_dir(empty_dir, resume=True)
+            self.assertIn("missing Praxist startup artifacts", str(cm.exception))
+            self.assertIn("Manual inspection is required", str(cm.exception))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            bad_json_dir = Path(tmp) / "bad_json"
+            bad_json_dir.mkdir()
+            (bad_json_dir / "run.json").write_text("{not-valid-json", encoding="utf-8")
+            (bad_json_dir / "startup_config.json").write_text("{}", encoding="utf-8")
+            with self.assertRaises(ValueError) as cm:
+                resume_state._read_json_object_for_resume(bad_json_dir / "run.json")
+            self.assertIn("not valid JSON", str(cm.exception))
+            self.assertIn("Manual inspection is required", str(cm.exception))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            non_obj_dir = Path(tmp) / "non_obj"
+            non_obj_dir.mkdir()
+            (non_obj_dir / "run.json").write_text("[1, 2, 3]", encoding="utf-8")
+            with self.assertRaises(ValueError) as cm:
+                resume_state._read_json_object_for_resume(non_obj_dir / "run.json")
+            self.assertIn("must be a JSON object", str(cm.exception))
+            self.assertIn("Manual inspection is required", str(cm.exception))
+
+    def test_resume_plan_safely_handles_already_completed_all_generations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "completed_run"
+            run_dir.mkdir()
+            (run_dir / "startup_config.json").write_text(
+                json.dumps({"contract_version": 2, "marker_contract_start": 0}), encoding="utf-8"
+            )
+            # Generation 0 complete
+            self._write_generation_results(run_dir, 0)
+            write_boundary_marker(run_dir, gen_id=0, promoted_count=1, pi_status="succeeded")
+
+            # Generation 1 complete
+            self._write_generation_results(run_dir, 1)
+            write_boundary_marker(run_dir, gen_id=1, promoted_count=1, pi_status="succeeded")
+
+            plan = inspect_resume_plan(run_dir, max_generations=2, pi_enabled=True)
+            self.assertEqual(plan.completed_generations, 2)
+            self.assertEqual(plan.start_generation, 2)
+            self.assertIsNone(plan.pending_boundary_generation)
+            self.assertFalse(plan.has_pending_boundary)
+            self.assertEqual(plan.warnings, ())
 
     def test_startup_resume_identity_accepts_matching_canonical_args(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

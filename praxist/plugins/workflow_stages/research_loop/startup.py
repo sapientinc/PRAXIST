@@ -1206,31 +1206,44 @@ def _touch_required_jsonl(run_dir: Path) -> None:
         path.touch(exist_ok=True)
 
 
+PRAXIST_RUN_ARTIFACT_REL_PATHS = (
+    "run.json",
+    "startup_config.json",
+    "trajectory.jsonl",
+    "budget_ledger.jsonl",
+    "artifact_index.jsonl",
+    "run_summary.json",
+    "plugin_resolution.json",
+    "effective_task_spec.yaml",
+    "model_profiles.json",
+    "cache_policy.json",
+    "task_project_manifest.json",
+    "credentials_redacted.json",
+    "findings",
+    "frontier",
+    "agendas",
+    "memory",
+    "gems",
+    "gen_0",
+)
+
+
 def _ensure_fresh_run_dir(run_dir: Path, *, resume: bool = False) -> None:
     if resume:
         ensure_resumable_run_dir(run_dir)
         return
     if not run_dir.exists():
         return
-    for rel in (
-        "run.json",
-        "trajectory.jsonl",
-        "budget_ledger.jsonl",
-        "artifact_index.jsonl",
-        "run_summary.json",
-        "plugin_resolution.json",
-        "startup_config.json",
-    ):
+    for rel in PRAXIST_RUN_ARTIFACT_REL_PATHS:
         if (run_dir / rel).exists():
             raise ValueError(
                 f"run_dir already contains Praxist run artifacts: {run_dir}. "
-                "Resume mode is not implemented; choose a fresh run directory."
+                "Use --resume or --resume-from to continue this run, or choose a fresh run directory."
             )
     blocking_paths = [path for path in run_dir.iterdir() if not _is_ignorable_precreated_path(path)]
     if blocking_paths:
         raise ValueError(
-            f"run_dir already exists and is not empty: {run_dir}. "
-            "Resume mode is not implemented; choose a fresh run directory."
+            f"run_dir already exists and is not empty: {run_dir}. Choose a fresh run directory."
         )
 
 

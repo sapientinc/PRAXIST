@@ -251,6 +251,91 @@ class ResearchLoopWorkflowTest(unittest.TestCase):
             disabled = prepared.resolution_manifest["disabled_optional"]
             self.assertTrue(any(item.get("stage_id") == "ideation" for item in disabled))
 
+    def test_research_loop_startup_rejects_preexisting_artifacts_with_resume_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = (root / "run_existing").resolve()
+            with patch.dict(os.environ, {}, clear=False):
+                prepare_research_loop_plugin_run(
+                    task_project_path=Path.cwd() / "templates" / "tasks" / "toy_math",
+                    workspace=root,
+                    run_dir=run_dir,
+                    runtime_ref="agent_runtime:fake_runtime",
+                    model_provider_ref="model_provider:fake_provider",
+                    budget_policy_ref="budget_policy:fake_tiered",
+                    model="fake-deterministic",
+                    local_mode=True,
+                    frontier_strategy="auto",
+                    credential_profile="fake_multi_key",
+                    command="initial test",
+                )
+            with self.assertRaises(ValueError) as cm:
+                prepare_research_loop_plugin_run(
+                    task_project_path=Path.cwd() / "templates" / "tasks" / "toy_math",
+                    workspace=root,
+                    run_dir=run_dir,
+                    runtime_ref="agent_runtime:fake_runtime",
+                    model_provider_ref="model_provider:fake_provider",
+                    budget_policy_ref="budget_policy:fake_tiered",
+                    model="fake-deterministic",
+                    local_mode=True,
+                    frontier_strategy="auto",
+                    credential_profile="fake_multi_key",
+                    command="second test",
+                    resume=False,
+                )
+            self.assertIn("already contains Praxist run artifacts", str(cm.exception))
+            self.assertIn("Use --resume or --resume-from", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+
+            with patch.dict(os.environ, {}, clear=False):
+                resumed = prepare_research_loop_plugin_run(
+                    task_project_path=Path.cwd() / "templates" / "tasks" / "toy_math",
+                    workspace=root,
+                    run_dir=run_dir,
+                    runtime_ref="agent_runtime:fake_runtime",
+                    model_provider_ref="model_provider:fake_provider",
+                    budget_policy_ref="budget_policy:fake_tiered",
+                    model="fake-deterministic",
+                    local_mode=True,
+                    frontier_strategy="auto",
+                    credential_profile="fake_multi_key",
+                    command="resumed test",
+                    resume=True,
+                )
+            self.assertEqual(resumed.run_dir, run_dir)
+            run_json = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(run_json.get("resume_count"), 1)
+            self.assertIn("resumed_at", run_json)
+
+    def test_research_loop_startup_rejects_unrelated_nonempty_directory_without_resume_guidance(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = (root / "run_unrelated").resolve()
+            run_dir.mkdir()
+            (run_dir / "random.txt").write_text("hello", encoding="utf-8")
+            with self.assertRaises(ValueError) as cm:
+                prepare_research_loop_plugin_run(
+                    task_project_path=Path.cwd() / "templates" / "tasks" / "toy_math",
+                    workspace=root,
+                    run_dir=run_dir,
+                    runtime_ref="agent_runtime:fake_runtime",
+                    model_provider_ref="model_provider:fake_provider",
+                    budget_policy_ref="budget_policy:fake_tiered",
+                    model="fake-deterministic",
+                    local_mode=True,
+                    frontier_strategy="auto",
+                    credential_profile="fake_multi_key",
+                    command="unrelated test",
+                    resume=False,
+                )
+            self.assertIn("already exists and is not empty", str(cm.exception))
+            self.assertIn("Choose a fresh run directory.", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+            self.assertNotIn("--resume-from", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

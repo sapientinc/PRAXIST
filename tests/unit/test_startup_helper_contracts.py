@@ -529,13 +529,21 @@ class StartupHelperContractsTest(unittest.TestCase):
             (run_dir / "empty").mkdir()
             startup._ensure_fresh_run_dir(run_dir)
             (run_dir / "run.json").write_text("{}", encoding="utf-8")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 startup._ensure_fresh_run_dir(run_dir)
+            self.assertIn("already contains Praxist run artifacts", str(cm.exception))
+            self.assertIn("Use --resume or --resume-from", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+
             blocked = workspace / "blocked_run"
             (blocked / "nonempty").mkdir(parents=True)
             (blocked / "nonempty" / "x").write_text("x", encoding="utf-8")
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as cm:
                 startup._ensure_fresh_run_dir(blocked)
+            self.assertIn("already exists and is not empty", str(cm.exception))
+            self.assertIn("Choose a fresh run directory.", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+            self.assertNotIn("--resume-from", str(cm.exception))
 
             descriptor_path = workspace / "task.yaml"
             descriptor_path.write_text("[1]", encoding="utf-8")

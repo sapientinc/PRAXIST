@@ -49,22 +49,25 @@ def _linux_process_group_activity(pgid: int) -> bool | None:
         entries = os.scandir(proc_root)
     except OSError:
         return None
-    with entries:
-        for entry in entries:
-            if not entry.name.isdigit():
-                continue
-            try:
-                stat = Path(entry.path, "stat").read_bytes()
-                fields = stat.rsplit(b")", 1)[1].split()
-                state, member_pgid = fields[0].decode("ascii"), int(fields[2])
-            except (OSError, IndexError, ValueError):
-                continue
-            if member_pgid != pgid:
-                continue
-            observed_member = True
-            if state not in {"X", "x", "Z"}:
-                return True
-    return False if observed_member else None
+    else:
+        with entries:
+            for entry in entries:
+                if not entry.name.isdigit():
+                    continue
+                state = ""
+                member_pgid = -1
+                try:
+                    stat = Path(entry.path, "stat").read_bytes()
+                    fields = stat.rsplit(b")", 1)[1].split()
+                    state, member_pgid = fields[0].decode("ascii"), int(fields[2])
+                except (OSError, IndexError, ValueError):
+                    continue
+                if member_pgid != pgid:
+                    continue
+                observed_member = True
+                if state not in {"X", "x", "Z"}:
+                    return True
+        return False if observed_member else None
 
 
 def terminate_process_group(

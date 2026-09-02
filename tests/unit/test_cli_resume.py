@@ -890,6 +890,7 @@ class ResumeRunTest(unittest.TestCase):
         with self.assertRaises(resume.ResumeError) as cm:
             resume.resolve_resume_target(str(run_dir))
         self.assertIn("JSON object", str(cm.exception))
+        self.assertIn("Manual inspection is required", str(cm.exception))
 
     def test_missing_resume_artifacts_are_rejected(self) -> None:
         from praxist.cli import resume
@@ -899,6 +900,29 @@ class ResumeRunTest(unittest.TestCase):
         with self.assertRaises(resume.ResumeError) as cm:
             resume.resolve_resume_target(str(missing_run_dir))
         self.assertIn("does not exist", str(cm.exception))
+
+    def test_existing_directory_missing_startup_artifacts_requires_manual_inspection(self) -> None:
+        from praxist.cli import resume
+
+        empty_run_dir = Path(self.workspace.name) / "empty_existing_run"
+        empty_run_dir.mkdir()
+
+        with self.assertRaises(resume.ResumeError) as cm:
+            resume.resolve_resume_target(str(empty_run_dir))
+        self.assertIn("missing Praxist startup artifacts", str(cm.exception))
+        self.assertIn("Manual inspection is required", str(cm.exception))
+
+    def test_resume_malformed_json_artifact_requires_manual_inspection(self) -> None:
+        from praxist.cli import resume
+
+        task = _make_task_dir(Path(self.workspace.name), name="corrupt_json_task")
+        run_dir = _make_run_dir(Path(self.workspace.name), task_path=task)
+        (run_dir / "startup_config.json").write_text("{not-valid-json", encoding="utf-8")
+
+        with self.assertRaises(resume.ResumeError) as cm:
+            resume.resolve_resume_target(str(run_dir))
+        self.assertIn("could not read resume artifact", str(cm.exception))
+        self.assertIn("Manual inspection is required", str(cm.exception))
 
     def test_run_directory_with_multiple_registry_owners_is_rejected(self) -> None:
         from praxist.cli import registry, resume
