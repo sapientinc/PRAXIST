@@ -1453,5 +1453,7 @@ def _is_ignorable_precreated_path(path: Path) -> bool:
     if path.is_dir():
         if path.name == "logs":
             return all(child.name in {".gitkeep", "launcher.nohup.log"} for child in path.iterdir())
+        if path.name in {"findings", "frontier", "agendas", "memory", "gems"} or path.name.startswith("gen_"):
+            return False
         return not any(path.iterdir())
     return False
