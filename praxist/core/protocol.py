@@ -66,7 +66,7 @@ class ModelResult:
     model: str
     text: str | None
     usage: dict[str, float]
-    cost: dict[str, float] = field(default_factory=dict)
+    cost: dict[str, float]
     error: str | None
     failover_reason: str | None
 

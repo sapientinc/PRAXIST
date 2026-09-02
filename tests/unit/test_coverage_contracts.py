@@ -153,7 +153,7 @@ class ProtocolCoverageContractsTest(unittest.TestCase):
 
         self.assertEqual(profile.to_dict()["model"], "fake-model")
         self.assertEqual(
-            ModelResult(True, "p", "m", "text", {"tokens": 1}, None, None).to_dict()["usage"][
+            ModelResult(True, "p", "m", "text", {"tokens": 1}, {}, None, None).to_dict()["usage"][
                 "tokens"
             ],
             1,
