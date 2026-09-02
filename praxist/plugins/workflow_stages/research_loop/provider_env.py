@@ -43,6 +43,9 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         "OPENROUTER_API_KEY": None,
         "OPENAI_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
+        "GROQ_API_KEY": None,
+        "MISTRAL_API_KEY": None,
+        "XAI_API_KEY": None,
     }
     if model_provider_ref == "model_provider:openrouter":
         base_url = normalize_openrouter_base_url(
@@ -64,6 +67,12 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         }
     if model_provider_ref == "model_provider:openai_compatible":
         return {**base, "OPENAI_API_KEY": env.get("OPENAI_API_KEY")}
+    if model_provider_ref == "model_provider:groq_alias":
+        return {**base, "GROQ_API_KEY": env.get("GROQ_API_KEY")}
+    if model_provider_ref == "model_provider:mistral_alias":
+        return {**base, "MISTRAL_API_KEY": env.get("MISTRAL_API_KEY")}
+    if model_provider_ref == "model_provider:xai_alias":
+        return {**base, "XAI_API_KEY": env.get("XAI_API_KEY")}
     if model_provider_ref == "model_provider:deepseek_alias":
         auth_token = env.get("DEEPSEEK_API_KEY") or env.get("ANTHROPIC_AUTH_TOKEN")
         return {

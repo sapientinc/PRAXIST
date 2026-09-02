@@ -186,9 +186,12 @@ praxist/plugins/workflow_stages/research_loop/stage.py::CLAUDE_CODE_EFFORT_LEVEL
 praxist/plugins/workflow_stages/research_loop/stage.py::CLAUDE_CODE_SUBAGENT_MODEL
 praxist/plugins/workflow_stages/research_loop/stage.py::DEEPSEEK_ANTHROPIC_BASE_URL
 praxist/plugins/workflow_stages/research_loop/stage.py::DEEPSEEK_API_KEY
+praxist/plugins/workflow_stages/research_loop/stage.py::GROQ_API_KEY
+praxist/plugins/workflow_stages/research_loop/stage.py::MISTRAL_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENAI_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENROUTER_API_KEY
 praxist/plugins/workflow_stages/research_loop/stage.py::OPENROUTER_BASE_URL
+praxist/plugins/workflow_stages/research_loop/stage.py::XAI_API_KEY
 # startup.py reads PATH for subprocess env construction.
 praxist/plugins/workflow_stages/research_loop/startup.py::ANTHROPIC_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::DEEPSEEK_API_KEY

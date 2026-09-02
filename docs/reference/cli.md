@@ -45,8 +45,8 @@ Persist a built-in Praxist LLM provider profile.
 
 ```text
 usage: praxist configure-llm [-h] --provider PROVIDER [--model MODEL]
-                             [--agent-system {claude_sdk,codex_sdk}]
-                             [--api-key-stdin | --api-key-env API_KEY_ENV | --no-api-key | --remove-api-key]
+                             [--agent-system {claude_sdk,codex_sdk}] [--api-key-stdin |
+                             --api-key-env API_KEY_ENV | --no-api-key | --remove-api-key]
                              [--config-file CONFIG_FILE] [--project-env-file PROJECT_ENV_FILE]
                              [--print-source-command] [--json] [--dry-run]
 ```

@@ -46,6 +46,9 @@ PROVIDER_REF_FOR_SHORT_NAME: dict[str, str] = {
     "openai": "model_provider:openai_compatible",
     "openrouter": "model_provider:openrouter",
     "deepseek": "model_provider:deepseek_alias",
+    "groq": "model_provider:groq_alias",
+    "mistral": "model_provider:mistral_alias",
+    "xai": "model_provider:xai_alias",
 }
 """Canonical plugin ref for every built-in model provider."""
 

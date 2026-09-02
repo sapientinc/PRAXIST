@@ -1,0 +1,31 @@
+schema_version: 1
+name: groq_alias
+kind: model_provider
+version: 0.1.0
+protocol_version: 1
+stability: experimental
+description: Groq alias on the OpenAI-compatible adapter path.
+compatibility:
+  praxist_core: ">=0.1.0,<1.0"
+  python: ">=3.11"
+dependencies: []
+capabilities:
+  - provider.openai_compatible
+  - provider.groq
+provider:
+  api_format: openai_compatible
+  default_model: llama-3.3-70b-versatile
+  cache_strategy: provider_default
+  usage_reporting: usage_or_usage_unknown
+  model_profiles:
+    cheap_peer: llama-3.1-8b-instant
+    strong_reasoner: llama-3.3-70b-versatile
+  compatible_model_patterns:
+    - "llama*"
+    - "mixtral*"
+    - "gemma*"
+    - "groq*"
+entrypoint: adapter:create_provider
+code:
+  - adapter.py
+assets: []

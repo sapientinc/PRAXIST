@@ -121,6 +121,9 @@ def provider_key_var(provider: str) -> str:
         "anthropic_messages": "anthropic",
         "openai_compatible": "openai",
         "deepseek_alias": "deepseek",
+        "groq_alias": "groq",
+        "mistral_alias": "mistral",
+        "xai_alias": "xai",
         "dashscope": "qwen",
     }.get(normalized, normalized)
     try:
@@ -136,6 +139,9 @@ def provider_short_name(provider: str) -> str:
         "anthropic_messages": "anthropic",
         "openai_compatible": "openai",
         "deepseek_alias": "deepseek",
+        "groq_alias": "groq",
+        "mistral_alias": "mistral",
+        "xai_alias": "xai",
         "dashscope": "qwen",
     }.get(normalized, normalized)
 
@@ -148,6 +154,9 @@ def provider_plugin_ref(provider: str) -> str:
         "anthropic_messages": "anthropic",
         "openai_compatible": "openai",
         "deepseek_alias": "deepseek",
+        "groq_alias": "groq",
+        "mistral_alias": "mistral",
+        "xai_alias": "xai",
     }.get(normalized, normalized)
     if built_in in PROVIDER_REF_FOR_SHORT_NAME:
         return PROVIDER_REF_FOR_SHORT_NAME[built_in]

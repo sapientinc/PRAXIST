@@ -24,6 +24,9 @@ runtime:
     - model_provider:openai_compatible
     - model_provider:openrouter
     - model_provider:deepseek_alias
+    - model_provider:groq_alias
+    - model_provider:mistral_alias
+    - model_provider:xai_alias
   cache_strategy: runtime_auto_cache
   event_schema: praxist.agent_event.v1
   usage_reporting: usage_or_usage_unknown

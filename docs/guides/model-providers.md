@@ -10,6 +10,9 @@ Agent runtime plugins execute the agent loops.
 - `model_provider:openai_compatible` for OpenAI-compatible endpoints.
 - `model_provider:anthropic_messages` for native Anthropic Messages style.
 - `model_provider:deepseek_alias` for DeepSeek-compatible aliases.
+- `model_provider:groq_alias` for Groq OpenAI-compatible aliases.
+- `model_provider:mistral_alias` for Mistral OpenAI-compatible aliases.
+- `model_provider:xai_alias` for xAI OpenAI-compatible aliases.
 
 API provider names represent API format and routing. A task or operator may
 override the `ModelProfile` used by a stage.

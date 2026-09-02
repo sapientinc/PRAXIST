@@ -126,6 +126,9 @@ class CorePluginContractsTest(unittest.TestCase):
             "model_provider:openai_compatible",
             "model_provider:openrouter",
             "model_provider:deepseek_alias",
+            "model_provider:groq_alias",
+            "model_provider:mistral_alias",
+            "model_provider:xai_alias",
         ):
             profile = default_model_profile(provider_ref)
             call = provider_for_ref(provider_ref).build_call(profile, credential_ref=None)

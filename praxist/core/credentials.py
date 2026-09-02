@@ -55,6 +55,9 @@ class CredentialResolver:
             "model_provider:openai_compatible",
         ),
         ("DEEPSEEK_API_KEY", "model_provider", "deepseek_alias", "model_provider:deepseek_alias"),
+        ("GROQ_API_KEY", "model_provider", "groq_alias", "model_provider:groq_alias"),
+        ("MISTRAL_API_KEY", "model_provider", "mistral_alias", "model_provider:mistral_alias"),
+        ("XAI_API_KEY", "model_provider", "xai_alias", "model_provider:xai_alias"),
         (
             "SEMANTIC_SCHOLAR_API_KEY",
             "tool_server",
