@@ -328,7 +328,7 @@ def monitor_subprocess_with_grace(
                 return proc.wait(timeout=policy.kill_grace_seconds)
             except subprocess.TimeoutExpired:
                 with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    os.killpg(proc.pid, getattr(signal, "SIGKILL", 9))
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     proc.wait(timeout=5)
                 return escalate_code

@@ -129,16 +129,27 @@ class BudgetedActionGuard:
             raise ResourceBudgetError(f"{self.action_type} requires an approved budget grant")
         if self.budget_grant_id and self.run_dir is not None:
             try:
-                BudgetLedger(self.run_dir, self.run_id).require_active_grant(self.budget_grant_id)
+                ledger = BudgetLedger(self.run_dir, self.run_id)
+                ledger.require_active_grant(self.budget_grant_id)
+                exhausted = ledger.get_exhausted_units(self.budget_grant_id)
+                if exhausted:
+                    raise ResourceBudgetError(
+                        f"Budget exhausted for units: {', '.join(sorted(exhausted))}"
+                    )
             except Exception as exc:  # noqa: BLE001 - preflight should report the real reason.
+                is_overrun = isinstance(exc, ResourceBudgetError)
                 self._emit_event(
                     "resource.action_denied"
-                    if self.require_budget_grant
+                    if self.require_budget_grant or is_overrun
                     else "resource.action_budget_warning",
-                    severity="error" if self.require_budget_grant else "warning",
-                    payload={"reason": "invalid_budget_grant", "error": str(exc), **self.metadata},
+                    severity="error" if self.require_budget_grant or is_overrun else "warning",
+                    payload={
+                        "reason": "budget_overrun" if is_overrun else "invalid_budget_grant",
+                        "error": str(exc),
+                        **self.metadata,
+                    },
                 )
-                if self.require_budget_grant:
+                if self.require_budget_grant or is_overrun:
                     raise ResourceBudgetError(str(exc)) from exc
         self._emit_event("resource.action_started", payload=self.metadata)
 

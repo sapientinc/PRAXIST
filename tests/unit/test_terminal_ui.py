@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import io
 import os
-import pty
+import sys
 import unittest
 from unittest.mock import patch
 
-from praxist.cli import _terminal_ui
-from praxist.cli._terminal_ui import (
+import pytest
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="Requires Unix pty")
+
+pty = pytest.importorskip("pty")
+
+from praxist.cli import _terminal_ui  # noqa: E402
+from praxist.cli._terminal_ui import (  # noqa: E402
     Choice,
     TerminalInteractionCancelled,
     TerminalInteractionError,

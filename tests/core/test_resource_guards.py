@@ -81,6 +81,46 @@ class Step16ResourceGuardMigrationTest(unittest.TestCase):
             unknown = [record for record in records if record["kind"] == "usage_unknown"][-1]
             self.assertEqual(unknown["unknown_units"], ["gpu_hours"])
 
+    def test_budgeted_action_guard_blocks_exhausted_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_guard_block"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"wall_clock_seconds": 10.0},
+            )
+
+            guard1 = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            guard1.start()
+            guard1.finish(
+                actual_usage={"wall_clock_seconds": 15.0},
+                expected_units=("wall_clock_seconds",),
+                reason="test_eval_runner_usage",
+            )
+
+            guard2 = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            with self.assertRaises(ResourceBudgetError) as ctx:
+                guard2.start()
+            self.assertIn("Budget exhausted for units: wall_clock_seconds", str(ctx.exception))
+
     def test_wait_for_file_records_tool_wall_clock_usage_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run_wait"

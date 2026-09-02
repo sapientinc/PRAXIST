@@ -213,6 +213,24 @@ class BudgetLedger:
             raise ValueError(f"Budget grant not found: {grant_id}")
         return grants[grant_id]
 
+    def get_exhausted_units(self, grant_id: str) -> list[str]:
+        grant = self.require_active_grant(grant_id)
+        approved = grant.get("granted_budget") or {}
+        if not isinstance(approved, dict):
+            raise ValueError(f"Budget grant has invalid approved budget: {grant_id}")
+
+        totals = self._usage_totals_by_grant().get(grant_id, {})
+        exhausted_units = []
+        for unit, raw_amount in approved.items():
+            try:
+                allowed = float(raw_amount)
+                used = float(totals.get(unit, 0.0))
+                if used >= allowed and allowed > 0:
+                    exhausted_units.append(str(unit))
+            except (TypeError, ValueError):
+                continue
+        return exhausted_units
+
     def _require_usage_within_grant(
         self, grant_id: str, actual_usage: dict[str, float]
     ) -> list[dict[str, Any]]:
