@@ -31,7 +31,12 @@ pitfalls"): if a baseline number looks surprising, remeasure before comparing.
 from __future__ import annotations
 
 import contextlib
-import fcntl
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 import json
 import logging
 import os
@@ -71,13 +76,15 @@ def _flock(path: Path) -> Generator[None, None, None]:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_suffix(path.suffix + ".lock")
-    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        if fcntl:
+            fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            if fcntl:
+                fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 

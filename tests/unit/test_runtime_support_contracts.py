@@ -301,7 +301,7 @@ class TrainingTimeoutAndContextContractsTest(unittest.TestCase):
             )
             with (
                 patch.object(training_timeout.time, "sleep", lambda _seconds: None),
-                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None),
+                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None, create=True),
             ):
                 self.assertEqual(
                     training_timeout.monitor_subprocess_with_grace(
@@ -323,7 +323,12 @@ class TrainingTimeoutAndContextContractsTest(unittest.TestCase):
                 )
             with (
                 patch.object(training_timeout.time, "sleep", lambda _seconds: None),
-                patch.object(training_timeout.os, "killpg", side_effect=ProcessLookupError),
+                patch.object(
+                    training_timeout.os,
+                    "killpg",
+                    side_effect=ProcessLookupError,
+                    create=True,
+                ),
             ):
                 proc = FakeProc([None, 7], wait_result=7)
                 self.assertEqual(
@@ -366,7 +371,7 @@ class TrainingTimeoutAndContextContractsTest(unittest.TestCase):
             )
             with (
                 patch.object(training_timeout.time, "sleep", lambda _seconds: None),
-                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None),
+                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None, create=True),
             ):
                 self.assertEqual(
                     training_timeout.monitor_subprocess_with_grace(
@@ -447,7 +452,7 @@ class TrainingTimeoutAndContextContractsTest(unittest.TestCase):
 
             with (
                 patch.object(training_timeout.time, "sleep", lambda _seconds: None),
-                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None),
+                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None, create=True),
             ):
                 self.assertEqual(
                     training_timeout.monitor_subprocess_with_grace(
@@ -468,7 +473,7 @@ class TrainingTimeoutAndContextContractsTest(unittest.TestCase):
             )
             with (
                 patch.object(training_timeout.time, "sleep", lambda _seconds: None),
-                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None),
+                patch.object(training_timeout.os, "killpg", lambda _pid, _sig: None, create=True),
             ):
                 self.assertEqual(
                     training_timeout.monitor_subprocess_with_grace(
