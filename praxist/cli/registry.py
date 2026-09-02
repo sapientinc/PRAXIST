@@ -401,7 +401,7 @@ def process_start_token(pid: int) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return ""
     started = " ".join(result.stdout.split())
-    if result.returncode == 0 and started:
+    if result.returncode == 0 and started and started != "-":
         return f"ps:{started}"
     return ""
 
