@@ -655,6 +655,16 @@ class ResearchLoopResumeContractsTest(unittest.TestCase):
                 self.assertIn("Use --resume or --resume-from", str(cm.exception))
                 self.assertNotIn("Resume mode is not implemented", str(cm.exception))
 
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "test_run_gen_1"
+            run_dir.mkdir()
+            (run_dir / "gen_1").mkdir()
+            with self.assertRaises(ValueError) as cm:
+                startup._ensure_fresh_run_dir(run_dir)
+            self.assertIn("already contains Praxist run artifacts", str(cm.exception))
+            self.assertIn("Use --resume or --resume-from", str(cm.exception))
+            self.assertNotIn("Resume mode is not implemented", str(cm.exception))
+
     def test_resume_mode_on_missing_or_damaged_artifacts_requires_manual_inspection(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             empty_dir = Path(tmp) / "empty"

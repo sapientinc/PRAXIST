@@ -1234,12 +1234,14 @@ def _ensure_fresh_run_dir(run_dir: Path, *, resume: bool = False) -> None:
         return
     if not run_dir.exists():
         return
-    for rel in PRAXIST_RUN_ARTIFACT_REL_PATHS:
-        if (run_dir / rel).exists():
-            raise ValueError(
-                f"run_dir already contains Praxist run artifacts: {run_dir}. "
-                "Use --resume or --resume-from to continue this run, or choose a fresh run directory."
-            )
+    has_artifacts = any((run_dir / rel).exists() for rel in PRAXIST_RUN_ARTIFACT_REL_PATHS) or any(
+        child.name.startswith("gen_") for child in run_dir.iterdir()
+    )
+    if has_artifacts:
+        raise ValueError(
+            f"run_dir already contains Praxist run artifacts: {run_dir}. "
+            "Use --resume or --resume-from to continue this run, or choose a fresh run directory."
+        )
     blocking_paths = [path for path in run_dir.iterdir() if not _is_ignorable_precreated_path(path)]
     if blocking_paths:
         raise ValueError(
@@ -1253,6 +1255,14 @@ def _is_ignorable_precreated_path(path: Path) -> bool:
     if path.is_dir():
         if path.name == "logs":
             return all(child.name in {".gitkeep", "launcher.nohup.log"} for child in path.iterdir())
+        if path.name in {
+            "findings",
+            "frontier",
+            "agendas",
+            "memory",
+            "gems",
+        } or path.name.startswith("gen_"):
+            return False
         return not any(path.iterdir())
     return False
 

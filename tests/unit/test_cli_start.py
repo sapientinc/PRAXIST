@@ -685,6 +685,31 @@ class LaunchRunTest(unittest.TestCase):
         self.assertIn("fresh run directory is not empty", str(cm.exception))
         self.assertIn("Choose another --run-dir or use --resume-from.", str(cm.exception))
 
+    def test_fresh_run_dir_rejects_empty_artifact_directory_with_resume_guidance(self) -> None:
+        from praxist.cli import start
+
+        for artifact_name in ("frontier", "findings", "gen_1"):
+            with self.subTest(artifact=artifact_name):
+                task = _make_task_dir(Path(self.workspace.name), name=f"empty_{artifact_name}_task")
+                run_dir = Path(self.workspace.name) / f"empty_{artifact_name}_run"
+                run_dir.mkdir(parents=True)
+                (run_dir / artifact_name).mkdir()
+                with self.assertRaises(start.StartError) as cm:
+                    start.launch_run(
+                        task_path=str(task),
+                        run_dir=str(run_dir),
+                        model=None,
+                        model_provider_ref=None,
+                        frontier_strategy="auto",
+                        cohort=None,
+                        generations=None,
+                        server=False,
+                        resume=False,
+                        spawn=MagicMock(return_value=_FakeProc()),
+                    )
+                self.assertIn("fresh run directory is not empty", str(cm.exception))
+                self.assertIn("Choose another --run-dir or use --resume-from.", str(cm.exception))
+
     def test_fresh_run_dir_rejects_unrelated_nonempty_directory_without_resume_guidance(
         self,
     ) -> None:
