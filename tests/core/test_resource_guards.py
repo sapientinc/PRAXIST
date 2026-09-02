@@ -81,6 +81,39 @@ class Step16ResourceGuardMigrationTest(unittest.TestCase):
             unknown = [record for record in records if record["kind"] == "usage_unknown"][-1]
             self.assertEqual(unknown["unknown_units"], ["gpu_hours"])
 
+    def test_budgeted_action_allows_informational_cost_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_cost"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"tokens": 1000.0},
+            )
+
+            guard = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            guard.start()
+            report = guard.finish(
+                actual_usage={"tokens": 500.0, "cost_usd": 0.05, "neurons": 200.0},
+                expected_units=("tokens", "cost_usd", "neurons"),
+                reason="test_cost_usage",
+            )
+
+            self.assertTrue(report.recorded)
+            records = BudgetLedger(run_dir, run_dir.name).records()
+            usage = [record for record in records if record["kind"] == "usage"][-1]
+            self.assertEqual(usage["actual_usage"]["tokens"], 500.0)
+            self.assertEqual(usage["actual_usage"]["cost_usd"], 0.05)
+            self.assertEqual(usage["actual_usage"]["neurons"], 200.0)
+
     def test_wait_for_file_records_tool_wall_clock_usage_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run_wait"
