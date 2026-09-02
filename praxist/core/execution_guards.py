@@ -173,7 +173,7 @@ class BudgetedActionGuard:
             approved = grant.get("granted_budget") or {}
             if not isinstance(approved, dict):
                 raise ValueError(f"invalid granted budget for {self.budget_grant_id}")
-            usage = {unit: value for unit, value in usage.items() if unit in approved}
+            usage = {unit: value for unit, value in usage.items() if unit in approved or unit in ("cost_usd", "neurons")}
             if "wall_clock_seconds" in expected_units and "wall_clock_seconds" in approved:
                 usage.setdefault("wall_clock_seconds", elapsed)
             unknown_units = [

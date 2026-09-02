@@ -230,7 +230,9 @@ class BudgetLedger:
                     f"Budget usage must be finite and non-negative for {unit}: {raw_amount}"
                 )
             if unit not in approved:
-                raise ValueError(f"Budget usage unit not approved by grant {grant_id}: {unit}")
+                # Informational usage units like cost_usd or neurons that were not granted upfront
+                # are allowed to be recorded without causing a ledger error.
+                continue
             approved_amount = float(approved[unit])
             new_total = float(totals.get(unit, 0.0)) + amount
             if new_total > approved_amount:

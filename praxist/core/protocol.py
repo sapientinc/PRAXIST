@@ -66,6 +66,7 @@ class ModelResult:
     model: str
     text: str | None
     usage: dict[str, float]
+    cost: dict[str, float] = field(default_factory=dict)
     error: str | None
     failover_reason: str | None
 
@@ -261,6 +262,7 @@ class AgentRunResult:
     failover_reason: str | None
     credential_ref: CredentialRef | None
     usage: dict[str, float] = field(default_factory=dict)
+    cost: dict[str, float] = field(default_factory=dict)
     terminal_status: str | None = None
     timed_out: bool = False
     cancelled: bool = False
@@ -275,6 +277,7 @@ class AgentRunResult:
             "failover_reason": self.failover_reason,
             "credential_ref": self.credential_ref.to_dict() if self.credential_ref else None,
             "usage": self.usage,
+            "cost": self.cost,
             "terminal_status": self.terminal_status,
             "timed_out": self.timed_out,
             "cancelled": self.cancelled,
