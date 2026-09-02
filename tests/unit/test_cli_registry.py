@@ -309,6 +309,27 @@ class RegistryBasicsTest(unittest.TestCase):
             env={"LANG": "C", "LC_ALL": "C"},
         )
 
+    def test_process_start_token_handles_daemonized_dash(self) -> None:
+        from praxist.cli import registry
+
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+            patch("praxist.cli.registry.shutil.which", return_value="/bin/ps"),
+            patch(
+                "praxist.cli.registry.subprocess.run",
+                return_value=registry.subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout="-\n",
+                    stderr="",
+                ),
+            ) as run,
+        ):
+            self.assertEqual(
+                registry.process_start_token(4242),
+                "",
+            )
+
     def test_process_start_token_handles_proc_no_ps_and_ps_timeout(self) -> None:
         from praxist.cli import registry
 
