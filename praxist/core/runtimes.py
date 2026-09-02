@@ -227,6 +227,8 @@ def _collect_result_usage(result: AgentRunResult) -> None:
     collector = _runtime_usage_collector.get()
     if collector is not None:
         collector.add(result.usage)
+        if hasattr(result, "cost") and result.cost:
+            collector.add(result.cost)
 
 
 def prompt_text_for_request(request: AgentRunRequest) -> str:

@@ -303,8 +303,12 @@ def _usage_for_grant(
     result: dict[str, Any] | None = None,
     allow_zero_for_unmeasured: bool = False,
 ) -> dict[str, float]:
+    from praxist.core.budget import ALLOWED_BUDGET_UNITS
+
     approved = grant_record.get("granted_budget") or {}
     usage: dict[str, float] = {}
+    
+    # Collect approved units
     if isinstance(approved, dict):
         for unit in approved:
             unit_name = str(unit)
@@ -313,6 +317,13 @@ def _usage_for_grant(
                 usage[unit_name] = measured
             elif allow_zero_for_unmeasured:
                 usage[unit_name] = 0.0
+
+    # Always collect cost/unapproved but recorded units if they exist in runtime_usage
+    if isinstance(result, dict) and isinstance(result.get("runtime_usage"), dict):
+        for unit_name, value in result["runtime_usage"].items():
+            if unit_name not in usage:
+                usage[unit_name] = float(value)
+
     if (
         "wall_clock_seconds" in usage
         or (isinstance(approved, dict) and "wall_clock_seconds" in approved)

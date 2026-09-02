@@ -42,6 +42,7 @@ class CodexEventCollector:
         self.tool_uses: list[ToolCallRecord] = []
         self.legacy_tool_uses: list[dict[str, Any]] = []
         self.usage: dict[str, float] = {}
+        self.cost: dict[str, float] = {}
         self.terminal: TerminalState | None = None
         self._event_index = 0
         self._tool_started_at: dict[str, int] = {}
@@ -64,7 +65,8 @@ class CodexEventCollector:
             self._item_completed(_item_dict(payload), payload_data)
         elif method == "thread/tokenUsage/updated":
             self.usage = _usage_dict(payload_data.get("tokenUsage"))
-            self.emit("usage", {"usage": self.usage})
+            self.cost = _cost_dict(payload_data.get("cost"))
+            self.emit("usage", {"usage": self.usage, "cost": self.cost})
         elif method == "turn/started":
             self.emit("turn_started", {"turn_id": _turn_id(payload_data)})
         elif method == "turn/completed":
@@ -148,6 +150,7 @@ class CodexEventCollector:
             failover_reason=failover_reason,
             credential_ref=self.request.credential_ref,
             usage=dict(self.usage),
+            cost=dict(self.cost),
             terminal_status=terminal_status,
             timed_out=timed_out,
             cancelled=interrupted_by_stop,
@@ -327,6 +330,16 @@ def _usage_dict(value: Any) -> dict[str, float]:
         key: float(total[source])
         for key, source in mapping.items()
         if isinstance(total.get(source), int | float)
+    }
+
+
+def _cost_dict(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): float(val)
+        for key, val in value.items()
+        if isinstance(val, (int, float)) and not isinstance(val, bool)
     }
 
 
