@@ -24,6 +24,14 @@ cohort. See [Research Topology Audit API](research-topology-and-module-api.md).
 registered interface placeholders, not product modules. They remain disabled
 by default and do not provide ideation or paper-writing workflows.
 
+Do not implement behavior for these placeholders as an isolated or casual
+contribution. Before either stage becomes a supported workflow, a design
+proposal should define its expected artifacts, lifecycle, budget behavior,
+and test/conformance requirements.
+
+Executable stage semantics belong in Python workflow plugins and should include
+the corresponding conformance coverage.
+
 ## Local Reviewer
 
 `workflow_stage:reviewer_stub` provides an optional local artifact and
