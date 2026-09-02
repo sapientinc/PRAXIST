@@ -303,7 +303,6 @@ def _usage_for_grant(
     result: dict[str, Any] | None = None,
     allow_zero_for_unmeasured: bool = False,
 ) -> dict[str, float]:
-    from praxist.core.budget import ALLOWED_BUDGET_UNITS
 
     approved = grant_record.get("granted_budget") or {}
     usage: dict[str, float] = {}
