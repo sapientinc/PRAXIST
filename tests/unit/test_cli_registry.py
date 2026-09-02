@@ -321,9 +321,8 @@ class RegistryBasicsTest(unittest.TestCase):
                     args=[],
                     returncode=0,
                     stdout="-\n",
-                    stderr="",
                 ),
-            ) as run,
+            ),
         ):
             self.assertEqual(
                 registry.process_start_token(4242),
