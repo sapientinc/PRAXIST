@@ -60,3 +60,28 @@ run artifact schemas.
 
 Those changes should include focused tests and, when they change architecture
 contracts, a concise rationale in the pull-request description.
+## Good First Contributions
+
+If you are making your first contribution, prefer small changes with a
+well-defined boundary and straightforward verification.
+
+Good starter contributions include:
+
+- graduating one small file from Pyrefly excludes;
+- adding focused tests around existing contracts;
+- improving generated-reference consistency checks;
+- fixing documentation links or wording while respecting the one-fact-one-owner
+  policy;
+- adding plugin-local tests for existing generic plugins.
+
+Avoid using a first contribution to change high-risk architecture surfaces,
+including:
+
+- startup semantics;
+- credential selection;
+- runtime invocation;
+- resume boundaries;
+- workflow-stage behavior.
+
+When in doubt, choose the smallest change that can be verified independently
+and keep the change within its existing repository boundary.
