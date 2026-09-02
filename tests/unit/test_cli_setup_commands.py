@@ -240,6 +240,37 @@ class ConfigureLLMTest(CliRunnerMixin, unittest.TestCase):
             self.assertIn("export PRAXIST_MODEL=deepseek/demo", text)
             self.assertIn("export OPENROUTER_API_KEY=sk-project-secret", text)
 
+    def test_configure_llm_supports_groq_mistral_and_xai_aliases(self) -> None:
+        for short_name, key_name in (
+            ("groq", "GROQ_API_KEY"),
+            ("mistral", "MISTRAL_API_KEY"),
+            ("xai", "XAI_API_KEY"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                config_file = Path(tmp) / "config" / "env"
+                secret = f"sk-{short_name}-secret"
+                code, out, err = self._run(
+                    [
+                        "configure-llm",
+                        "--provider",
+                        short_name,
+                        "--agent-system",
+                        "codex_sdk",
+                        "--api-key-stdin",
+                        "--config-file",
+                        str(config_file),
+                    ],
+                    stdin=f"{secret}\n",
+                )
+                self.assertEqual(code, 0, msg=out + err)
+                text = config_file.read_text(encoding="utf-8")
+                self.assertIn(f"export PRAXIST_LLM_PROVIDER={short_name}", text)
+                self.assertIn(
+                    f"export PRAXIST_MODEL_PROVIDER_REF=model_provider:{short_name}_alias",
+                    text,
+                )
+                self.assertIn(f"export {key_name}={secret}", text)
+
     def test_configure_llm_replaces_stale_canonical_runtime_and_provider_refs(self) -> None:
         from praxist.cli import start
         from praxist.cli._setup_common import load_env_file

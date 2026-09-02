@@ -479,6 +479,9 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
         "DEEPSEEK_API_KEY": None,
         CLOUDFLARE_KEY_VAR: None,
         "CLOUDFLARE_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "MISTRAL_API_KEY": None,
+        "XAI_API_KEY": None,
         "ANTHROPIC_MODEL": None,
         "ANTHROPIC_DEFAULT_OPUS_MODEL": None,
         "ANTHROPIC_DEFAULT_SONNET_MODEL": None,
@@ -538,6 +541,12 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
         }
     if model_provider_ref == "model_provider:openai_compatible":
         return {**base, "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY")}
+    if model_provider_ref == "model_provider:groq_alias":
+        return {**base, "GROQ_API_KEY": os.environ.get("GROQ_API_KEY")}
+    if model_provider_ref == "model_provider:mistral_alias":
+        return {**base, "MISTRAL_API_KEY": os.environ.get("MISTRAL_API_KEY")}
+    if model_provider_ref == "model_provider:xai_alias":
+        return {**base, "XAI_API_KEY": os.environ.get("XAI_API_KEY")}
     if model_provider_ref == "model_provider:deepseek_alias":
         auth_token = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
         return {

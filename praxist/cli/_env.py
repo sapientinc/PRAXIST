@@ -57,6 +57,9 @@ PROVIDER_REF_FOR_SHORT_NAME: dict[str, str] = {
     "orcarouter": "model_provider:orcarouter",
     "deepseek": "model_provider:deepseek_alias",
     CLOUDFLARE_PROVIDER: CLOUDFLARE_PROVIDER_REF,
+    "groq": "model_provider:groq_alias",
+    "mistral": "model_provider:mistral_alias",
+    "xai": "model_provider:xai_alias",
 }
 """Canonical plugin ref for every built-in model provider."""
 

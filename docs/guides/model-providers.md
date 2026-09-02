@@ -12,6 +12,9 @@ Agent runtime plugins execute the agent loops.
 - `model_provider:anthropic_messages` for native Anthropic Messages style.
 - `model_provider:deepseek_alias` for DeepSeek-compatible aliases.
 - `model_provider:cloudflare` for Cloudflare Workers AI.
+- `model_provider:groq_alias` for Groq OpenAI-compatible aliases.
+- `model_provider:mistral_alias` for Mistral OpenAI-compatible aliases.
+- `model_provider:xai_alias` for xAI OpenAI-compatible aliases.
 
 ### Cloudflare Workers AI
 

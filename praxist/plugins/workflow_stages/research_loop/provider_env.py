@@ -68,6 +68,9 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         "DEEPSEEK_API_KEY": None,
         CLOUDFLARE_KEY_VAR: None,
         "CLOUDFLARE_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "MISTRAL_API_KEY": None,
+        "XAI_API_KEY": None,
     }
     if model_provider_ref == CLOUDFLARE_PROVIDER_REF:
         # Workers AI is OpenAI-compatible only. The Codex relay reads the
@@ -113,6 +116,12 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         }
     if model_provider_ref == "model_provider:openai_compatible":
         return {**base, "OPENAI_API_KEY": env.get("OPENAI_API_KEY")}
+    if model_provider_ref == "model_provider:groq_alias":
+        return {**base, "GROQ_API_KEY": env.get("GROQ_API_KEY")}
+    if model_provider_ref == "model_provider:mistral_alias":
+        return {**base, "MISTRAL_API_KEY": env.get("MISTRAL_API_KEY")}
+    if model_provider_ref == "model_provider:xai_alias":
+        return {**base, "XAI_API_KEY": env.get("XAI_API_KEY")}
     if model_provider_ref == "model_provider:deepseek_alias":
         auth_token = env.get("DEEPSEEK_API_KEY") or env.get("ANTHROPIC_AUTH_TOKEN")
         return {

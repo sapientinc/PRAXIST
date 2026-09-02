@@ -29,6 +29,9 @@ runtime:
     # through the codex relay; it has no Anthropic route, so it is
     # deliberately absent from claude_sdk's allowlist.
     - model_provider:cloudflare
+    - model_provider:groq_alias
+    - model_provider:mistral_alias
+    - model_provider:xai_alias
   cache_strategy: runtime_auto_cache
   event_schema: praxist.agent_event.v1
   usage_reporting: usage_or_usage_unknown

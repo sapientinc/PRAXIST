@@ -2941,6 +2941,25 @@ assets: []
         self.assertIsNotNone(credential)
         self.assertEqual(credential.provider, "deepseek_alias")
 
+    def test_new_provider_aliases_env_keys_select_respective_providers(self) -> None:
+        cases = (
+            ("GROQ_API_KEY", "groq_alias", "model_provider:groq_alias"),
+            ("MISTRAL_API_KEY", "mistral_alias", "model_provider:mistral_alias"),
+            ("XAI_API_KEY", "xai_alias", "model_provider:xai_alias"),
+        )
+        for env_key, provider, target_ref in cases:
+            credential_set = CredentialResolver(
+                {env_key: "sk-test-redaction-000000"}
+            ).discover()
+            manager = CredentialFailoverManager(credential_set)
+            credential = manager.select(
+                scope="model_provider",
+                provider=provider,
+                target_ref=target_ref,
+            )
+            self.assertIsNotNone(credential, f"failed for {provider}")
+            self.assertEqual(credential.provider, provider)
+
     def test_plugin_code_and_asset_paths_are_confined_to_plugin_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

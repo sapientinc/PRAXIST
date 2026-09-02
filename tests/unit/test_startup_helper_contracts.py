@@ -225,6 +225,24 @@ class StartupHelperContractsTest(unittest.TestCase):
                 )["OPENAI_API_KEY"],
                 "o",
             )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:groq_alias", {"GROQ_API_KEY": "g"}
+                )["GROQ_API_KEY"],
+                "g",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:mistral_alias", {"MISTRAL_API_KEY": "m"}
+                )["MISTRAL_API_KEY"],
+                "m",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:xai_alias", {"XAI_API_KEY": "x"}
+                )["XAI_API_KEY"],
+                "x",
+            )
             deepseek_env = provider_env.freeze_provider_env(
                 "model_provider:deepseek_alias", {"DEEPSEEK_API_KEY": "d"}
             )

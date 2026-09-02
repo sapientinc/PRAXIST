@@ -1,0 +1,28 @@
+schema_version: 1
+name: xai_alias
+kind: model_provider
+version: 0.1.0
+protocol_version: 1
+stability: experimental
+description: xAI alias on the OpenAI-compatible adapter path.
+compatibility:
+  praxist_core: ">=0.1.0,<1.0"
+  python: ">=3.11"
+dependencies: []
+capabilities:
+  - provider.openai_compatible
+  - provider.xai
+provider:
+  api_format: openai_compatible
+  default_model: grok-2-latest
+  cache_strategy: provider_default
+  usage_reporting: usage_or_usage_unknown
+  model_profiles:
+    cheap_peer: grok-2-mini
+    strong_reasoner: grok-2-latest
+  compatible_model_patterns:
+    - "grok*"
+entrypoint: adapter:create_provider
+code:
+  - adapter.py
+assets: []

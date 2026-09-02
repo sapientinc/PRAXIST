@@ -272,6 +272,9 @@ class ProviderDefaultModelTest(unittest.TestCase):
             "model_provider:openrouter": "anthropic/claude-opus-4.7",
             "model_provider:openai_compatible": "gpt-5.2",
             "model_provider:deepseek_alias": "deepseek-v4-pro[1m]",
+            "model_provider:groq_alias": "llama-3.3-70b-versatile",
+            "model_provider:mistral_alias": "mistral-large-latest",
+            "model_provider:xai_alias": "grok-2-latest",
         }
         for ref, expected in cases.items():
             with self.subTest(provider=ref):

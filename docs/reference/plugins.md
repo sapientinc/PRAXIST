@@ -22,6 +22,12 @@ This page documents executable generic plugin boundaries.
 
 ::: praxist.plugins.model_providers.cloudflare.adapter
 
+::: praxist.plugins.model_providers.groq_alias.adapter
+
+::: praxist.plugins.model_providers.mistral_alias.adapter
+
+::: praxist.plugins.model_providers.xai_alias.adapter
+
 ## Workflow Stage
 
 ::: praxist.plugins.workflow_stages.research_loop.startup

@@ -418,6 +418,9 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                 "ANTHROPIC_API_KEY": "anthropic-key",
                 "OPENAI_API_KEY": "openai-key",
                 "DEEPSEEK_API_KEY": "deepseek-key",
+                "GROQ_API_KEY": "groq-key",
+                "MISTRAL_API_KEY": "mistral-key",
+                "XAI_API_KEY": "xai-key",
             },
             clear=True,
         ):
@@ -436,6 +439,18 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             self.assertEqual(
                 stage._provider_env("model_provider:openai_compatible")["OPENAI_API_KEY"],
                 "openai-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:groq_alias")["GROQ_API_KEY"],
+                "groq-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:mistral_alias")["MISTRAL_API_KEY"],
+                "mistral-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:xai_alias")["XAI_API_KEY"],
+                "xai-key",
             )
             self.assertEqual(
                 stage._provider_env("model_provider:deepseek_alias")["DEEPSEEK_API_KEY"],

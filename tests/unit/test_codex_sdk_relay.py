@@ -56,15 +56,24 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(provider_name("model_provider:deepseek_alias"), "deepseek")
         self.assertEqual(provider_name("model_provider:openai_compatible"), "openai")
         self.assertEqual(provider_name("model_provider:openai"), "openai")
+        self.assertEqual(provider_name("model_provider:groq_alias"), "groq")
+        self.assertEqual(provider_name("model_provider:mistral_alias"), "mistral")
+        self.assertEqual(provider_name("model_provider:xai_alias"), "xai")
 
     def test_only_openai_uses_direct_responses_transport(self) -> None:
         self.assertFalse(needs_relay("openai"))
         self.assertFalse(needs_relay(""))
         self.assertTrue(needs_relay("deepseek"))
+        self.assertTrue(needs_relay("groq"))
+        self.assertTrue(needs_relay("mistral"))
+        self.assertTrue(needs_relay("xai"))
 
     def test_provider_key_variables_are_explicit(self) -> None:
         self.assertEqual(provider_key_var("deepseek"), "DEEPSEEK_API_KEY")
         self.assertEqual(provider_key_var("openrouter"), "OPENROUTER_API_KEY")
+        self.assertEqual(provider_key_var("groq"), "GROQ_API_KEY")
+        self.assertEqual(provider_key_var("mistral"), "MISTRAL_API_KEY")
+        self.assertEqual(provider_key_var("xai"), "XAI_API_KEY")
         self.assertEqual(provider_key_var("unknown"), "OPENAI_API_KEY")
 
 
