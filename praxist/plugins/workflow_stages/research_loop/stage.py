@@ -306,7 +306,7 @@ def _usage_for_grant(
 
     approved = grant_record.get("granted_budget") or {}
     usage: dict[str, float] = {}
-    
+
     # Collect approved units
     if isinstance(approved, dict):
         for unit in approved:
