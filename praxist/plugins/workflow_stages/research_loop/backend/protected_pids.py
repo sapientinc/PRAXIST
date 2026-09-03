@@ -23,12 +23,7 @@ launches while preserving every already-running process group for drain.
 from __future__ import annotations
 
 import contextlib
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
+import fcntl
 import json
 import logging
 import os
@@ -197,15 +192,13 @@ def _manifest_lock(manifest_path: Path) -> Generator[None, None, None]:
     """
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = manifest_path.with_suffix(manifest_path.suffix + ".lock")
-    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0), 0o644)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o644)
     try:
-        if fcntl:
-            fcntl.flock(fd, fcntl.LOCK_EX)
+        fcntl.flock(fd, fcntl.LOCK_EX)
         yield
     finally:
         try:
-            if fcntl:
-                fcntl.flock(fd, fcntl.LOCK_UN)
+            fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
 

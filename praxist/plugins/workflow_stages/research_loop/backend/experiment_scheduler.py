@@ -176,13 +176,8 @@ class _SupplyLease:
         }
 
 
-if hasattr(socketserver, "ThreadingUnixStreamServer"):
-
-    class _UnixServer(socketserver.ThreadingUnixStreamServer):
-        daemon_threads = True
-
-else:
-    _UnixServer = None
+class _UnixServer(socketserver.ThreadingUnixStreamServer):
+    daemon_threads = True
 
 
 class _RequestHandler(socketserver.StreamRequestHandler):

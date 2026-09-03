@@ -32,12 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
-
+import fcntl
 import json
 import logging
 import os
