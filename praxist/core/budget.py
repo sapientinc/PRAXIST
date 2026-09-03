@@ -14,7 +14,10 @@ from praxist.core.registry import (
     require_execution_plugin,
 )
 
-ALLOWED_BUDGET_UNITS = {"tokens", "wall_clock_seconds", "gpu_hours", "neurons", "cost_usd"}
+INFORMATIONAL_USAGE_UNITS = frozenset({"cost_usd", "neurons"})
+ALLOWED_BUDGET_UNITS = {"tokens", "wall_clock_seconds", "gpu_hours"} | set(
+    INFORMATIONAL_USAGE_UNITS
+)
 
 
 class BudgetPolicy(Protocol):

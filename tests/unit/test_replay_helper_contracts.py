@@ -316,7 +316,12 @@ class ReplayHelperContractsTest(unittest.TestCase):
                 "kind": "usage",
                 "record_id": "u1",
                 "grant_id": "g1",
-                "actual_usage": {"tokens": 3, "wall_clock_seconds": "oops", "gpu_hours": 1},
+                "actual_usage": {
+                    "tokens": 3,
+                    "wall_clock_seconds": "oops",
+                    "gpu_hours": 1,
+                    "cost_usd": 0.25,
+                },
             },
             {
                 "kind": "usage",
@@ -348,6 +353,7 @@ class ReplayHelperContractsTest(unittest.TestCase):
         self.assertIn("references unknown grant_id", joined_errors)
         self.assertIn("unknown_units is not a list", joined_errors)
         self.assertIn("uses unapproved budget unit: gpu_hours", joined_errors)
+        self.assertNotIn("uses unapproved budget unit: cost_usd", joined_errors)
         self.assertIn("non-numeric usage", joined_errors)
         self.assertIn("uses unapproved budget unit: gpu_hours", joined_errors)
         self.assertIn("non-numeric approval", joined_errors)

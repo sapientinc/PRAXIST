@@ -66,9 +66,9 @@ class ModelResult:
     model: str
     text: str | None
     usage: dict[str, float]
-    cost: dict[str, float]
     error: str | None
     failover_reason: str | None
+    cost: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -262,10 +262,10 @@ class AgentRunResult:
     failover_reason: str | None
     credential_ref: CredentialRef | None
     usage: dict[str, float] = field(default_factory=dict)
-    cost: dict[str, float] = field(default_factory=dict)
     terminal_status: str | None = None
     timed_out: bool = False
     cancelled: bool = False
+    cost: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {

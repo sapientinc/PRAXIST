@@ -153,11 +153,26 @@ class ProtocolCoverageContractsTest(unittest.TestCase):
 
         self.assertEqual(profile.to_dict()["model"], "fake-model")
         self.assertEqual(
-            ModelResult(True, "p", "m", "text", {"tokens": 1}, {}, None, None).to_dict()["usage"][
+            ModelResult(True, "p", "m", "text", {"tokens": 1}, None, None).to_dict()["usage"][
                 "tokens"
             ],
             1,
         )
+        legacy_result = AgentRunResult(
+            True,
+            [],
+            [],
+            [],
+            None,
+            None,
+            None,
+            {"tokens": 1},
+            "completed",
+            False,
+            False,
+        )
+        self.assertEqual(legacy_result.terminal_status, "completed")
+        self.assertEqual(legacy_result.cost, {})
         self.assertEqual(
             ToolCallResult("s", "t", True, {"ok": True}).to_dict()["output"]["ok"], True
         )

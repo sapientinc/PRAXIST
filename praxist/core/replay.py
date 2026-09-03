@@ -16,7 +16,11 @@ from typing import Any
 
 import yaml
 
-from praxist.core.budget import ALLOWED_BUDGET_UNITS, policy_for_ref
+from praxist.core.budget import (
+    ALLOWED_BUDGET_UNITS,
+    INFORMATIONAL_USAGE_UNITS,
+    policy_for_ref,
+)
 from praxist.core.prompt_layout import sha256_json, sha256_text
 from praxist.core.protocol import BudgetRequest
 from praxist.core.redaction import scan_file
@@ -615,6 +619,8 @@ def _verify_budget_ledger(
                 )
                 continue
             if unit not in approved:
+                if unit in INFORMATIONAL_USAGE_UNITS:
+                    continue
                 errors.append(
                     f"budget usage {record.get('record_id')} uses unapproved budget unit: {unit}"
                 )

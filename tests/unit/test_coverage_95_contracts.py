@@ -1919,9 +1919,17 @@ class CoreContractCoverage95Test(unittest.TestCase):
         failed = adapter.normalize_result({"error": "bad key", "model": "m"})
         self.assertFalse(failed.success)
         self.assertEqual(failed.failover_reason, "runtime_error")
-        ok = adapter.normalize_result({"text": "hello", "model": "m", "usage": {"tokens": 2}})
+        ok = adapter.normalize_result(
+            {
+                "text": "hello",
+                "model": "m",
+                "usage": {"tokens": 2},
+                "cost": {"cost_usd": 0.5},
+            }
+        )
         self.assertTrue(ok.success)
         self.assertEqual(ok.usage["tokens"], 2.0)
+        self.assertEqual(ok.cost["cost_usd"], 0.5)
 
         profile = ModelProfile(
             profile_id="p",

@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from praxist.core.budget import ALLOWED_BUDGET_UNITS
+from praxist.core.budget import ALLOWED_BUDGET_UNITS, INFORMATIONAL_USAGE_UNITS
 from praxist.core.protocol import BudgetDecision, BudgetRequest
 from praxist.core.storage import append_jsonl, read_jsonl, utc_now
 
@@ -248,9 +248,9 @@ class BudgetLedger:
                     f"Budget usage must be finite and non-negative for {unit}: {raw_amount}"
                 )
             if unit not in approved:
-                # Informational usage units like cost_usd or neurons that were not granted upfront
-                # are allowed to be recorded without causing a ledger error.
-                continue
+                if unit in INFORMATIONAL_USAGE_UNITS:
+                    continue
+                raise ValueError(f"Budget usage unit not approved by grant {grant_id}: {unit}")
             approved_amount = float(approved[unit])
             new_total = float(totals.get(unit, 0.0)) + amount
             if new_total > approved_amount:

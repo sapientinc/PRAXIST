@@ -228,7 +228,8 @@ class CodexEventCollectorTest(unittest.TestCase):
                             "reasoningOutputTokens": 2,
                             "totalTokens": 18,
                         }
-                    }
+                    },
+                    "cost": {"cost_usd": 0.125},
                 },
             )
         )
@@ -240,6 +241,7 @@ class CodexEventCollectorTest(unittest.TestCase):
         self.assertEqual(result.terminal_status, "completed")
         self.assertEqual(result.usage["cached_input_tokens"], 7.0)
         self.assertEqual(result.usage["total_tokens"], 18.0)
+        self.assertEqual(result.cost, {"cost_usd": 0.125})
         self.assertEqual([event.type for event in result.events][-1], "final_result")
         self.assertTrue(result.events[-1].payload["relay_used"])
 

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from praxist.core.budget import INFORMATIONAL_USAGE_UNITS
 from praxist.core.ledgers import BudgetLedger
 from praxist.core.role_skills import RoleSkill, load_role_skill
 from praxist.core.runtimes import close_runtime_for_ref, collect_runtime_usage
@@ -317,10 +318,10 @@ def _usage_for_grant(
             elif allow_zero_for_unmeasured:
                 usage[unit_name] = 0.0
 
-    # Always collect cost/unapproved but recorded units if they exist in runtime_usage
+    # Keep provider-reported billing units even when the grant did not set a cost ceiling.
     if isinstance(result, dict) and isinstance(result.get("runtime_usage"), dict):
         for unit_name, value in result["runtime_usage"].items():
-            if unit_name not in usage:
+            if unit_name in INFORMATIONAL_USAGE_UNITS and unit_name not in usage:
                 usage[unit_name] = float(value)
 
     if (

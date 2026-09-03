@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from praxist.core.budget import INFORMATIONAL_USAGE_UNITS
 from praxist.core.ledgers import BudgetLedger
 from praxist.core.run_config import RunConfig
 from praxist.core.trajectory import TrajectoryWriter
@@ -187,7 +188,7 @@ class BudgetedActionGuard:
             usage = {
                 unit: value
                 for unit, value in usage.items()
-                if unit in approved or unit in ("cost_usd", "neurons")
+                if unit in approved or unit in INFORMATIONAL_USAGE_UNITS
             }
             if "wall_clock_seconds" in expected_units and "wall_clock_seconds" in approved:
                 usage.setdefault("wall_clock_seconds", elapsed)
