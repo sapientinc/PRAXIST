@@ -2948,9 +2948,7 @@ assets: []
             ("XAI_API_KEY", "xai_alias", "model_provider:xai_alias"),
         )
         for env_key, provider, target_ref in cases:
-            credential_set = CredentialResolver(
-                {env_key: "sk-test-redaction-000000"}
-            ).discover()
+            credential_set = CredentialResolver({env_key: "sk-test-redaction-000000"}).discover()
             manager = CredentialFailoverManager(credential_set)
             credential = manager.select(
                 scope="model_provider",
