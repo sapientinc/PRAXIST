@@ -1,7 +1,7 @@
 # Contributing to Praxist
 
 The canonical contribution workflow is maintained in
-[`docs/guides/contributing.md`](../docs/guides/contributing.md). Read it together
+[`docs/guides/contributing.md`](https://github.com/sapientinc/PRAXIST/blob/main/docs/guides/contributing.md). Read it together
 with [`AGENTS.md`](../AGENTS.md) before changing code, tests, documentation,
 templates, examples, or skills.
 
