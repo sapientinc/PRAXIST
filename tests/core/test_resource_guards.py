@@ -121,6 +121,22 @@ class Step16ResourceGuardMigrationTest(unittest.TestCase):
                 guard2.start()
             self.assertIn("Budget exhausted for units: wall_clock_seconds", str(ctx.exception))
 
+    def test_exhaustion_probe_rejects_malformed_grant_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_malformed_grant"
+            run_dir.mkdir()
+            ledger = BudgetLedger(run_dir, run_dir.name)
+
+            with (
+                patch.object(
+                    ledger,
+                    "require_active_grant",
+                    return_value={"granted_budget": ["tokens"]},
+                ),
+                self.assertRaisesRegex(ValueError, "invalid approved budget"),
+            ):
+                ledger.get_exhausted_units("grant-malformed")
+
     def test_budgeted_action_allows_informational_cost_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run_cost"
