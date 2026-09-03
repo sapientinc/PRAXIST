@@ -1130,11 +1130,17 @@ class CodexSdkAgentSystemTest(unittest.TestCase):
         self.assertEqual(resolved, "")
 
     def test_resolve_model_uses_cloudflare_provider_default(self) -> None:
-        from praxist.cli import start
+        from praxist.cli import _env, start
 
         with patch.dict(os.environ, {"MODEL": "", "PRAXIST_MODEL": ""}, clear=False):
             resolved = start._resolve_model(None, start.CLOUDFLARE_PROVIDER_REF, "codex_sdk")
         self.assertEqual(resolved, start.CLOUDFLARE_DEFAULT_MODEL)
+        self.assertEqual(_env.provider_base_url("groq"), "https://api.groq.com/openai/v1")
+        with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-id"}, clear=True):
+            self.assertEqual(
+                _env.provider_base_url(" Cloudflare "),
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
 
     def test_praxist_agent_system_env_var_picks_codex_sdk(self) -> None:
         from praxist.cli import start

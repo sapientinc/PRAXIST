@@ -414,10 +414,13 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             os.environ,
             {
                 "OPENROUTER_API_KEY": "or-key",
+                "ORCAROUTER_API_KEY": "orca-key",
                 "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",
                 "ANTHROPIC_API_KEY": "anthropic-key",
                 "OPENAI_API_KEY": "openai-key",
                 "DEEPSEEK_API_KEY": "deepseek-key",
+                "CLOUDFLARE_API_KEY": "cloudflare-key",
+                "CLOUDFLARE_ACCOUNT_ID": "account-id",
                 "GROQ_API_KEY": "groq-key",
                 "MISTRAL_API_KEY": "mistral-key",
                 "XAI_API_KEY": "xai-key",
@@ -431,6 +434,10 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             self.assertEqual(
                 stage._provider_env("model_provider:openrouter")["OPENROUTER_API_KEY"],
                 "or-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:orcarouter")["ORCAROUTER_API_KEY"],
+                "orca-key",
             )
             self.assertEqual(
                 stage._provider_env("model_provider:anthropic_messages")["ANTHROPIC_API_KEY"],
@@ -452,6 +459,13 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                 stage._provider_env("model_provider:xai_alias")["XAI_API_KEY"],
                 "xai-key",
             )
+            cloudflare_env = stage._provider_env("model_provider:cloudflare")
+            self.assertEqual(cloudflare_env["CLOUDFLARE_API_KEY"], "cloudflare-key")
+            self.assertEqual(cloudflare_env["OPENAI_API_KEY"], "cloudflare-key")
+            self.assertEqual(
+                cloudflare_env["CLOUDFLARE_BASE_URL"],
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
             self.assertEqual(
                 stage._provider_env("model_provider:deepseek_alias")["DEEPSEEK_API_KEY"],
                 "deepseek-key",
@@ -466,6 +480,11 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             self.assertIsNone(stage._provider_env("model_provider:fake_provider")["OPENAI_API_KEY"])
             with self.assertRaises(ValueError):
                 stage._provider_env("model_provider:unknown")
+
+        with patch.dict(os.environ, {}, clear=True):
+            orcarouter_env = stage._provider_env("model_provider:orcarouter")
+        self.assertIsNone(orcarouter_env["ANTHROPIC_AUTH_TOKEN"])
+        self.assertIsNone(orcarouter_env["ORCAROUTER_API_KEY"])
 
     def test_research_loop_stage_execute_resolve_success_and_unknown_usage(self) -> None:
         from praxist.plugins.workflow_stages.research_loop import stage

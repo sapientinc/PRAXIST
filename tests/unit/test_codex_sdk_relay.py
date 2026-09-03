@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from praxist.core.cloudflare import workers_ai_base_url
 from praxist.plugins.agent_runtimes.codex_sdk._relay import (
     RelayHandle,
     _available_port,
@@ -81,6 +82,10 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(provider_key_var("unknown"), "OPENAI_API_KEY")
 
     def test_cloudflare_upstream_is_account_scoped_or_explicit(self) -> None:
+        self.assertEqual(
+            workers_ai_base_url({}, account_id="explicit-account"),
+            "https://api.cloudflare.com/client/v4/accounts/explicit-account/ai/v1",
+        )
         with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-id"}, clear=True):
             self.assertEqual(
                 provider_upstream("cloudflare"),
@@ -100,6 +105,22 @@ class ProviderRoutingTest(unittest.TestCase):
 
 
 class RelayLifecycleTest(unittest.TestCase):
+    def test_cloudflare_configuration_error_is_normalized(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch(
+                "praxist.plugins.agent_runtimes.codex_sdk._relay._relay_binary",
+                return_value="/usr/bin/codex-relay",
+            ),
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(RuntimeError, "CLOUDFLARE_ACCOUNT_ID"),
+        ):
+            start_relay(
+                provider="cloudflare",
+                api_key="cf-key",
+                state_dir=Path(tmp),
+            )
+
     def test_available_port_is_ephemeral_and_released(self) -> None:
         port = _available_port()
         self.assertGreater(port, 0)
