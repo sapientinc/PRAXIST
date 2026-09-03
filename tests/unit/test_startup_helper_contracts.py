@@ -237,6 +237,33 @@ class StartupHelperContractsTest(unittest.TestCase):
                 "model_provider:xai_alias", {"XAI_API_KEY": "x"}
             )
             self.assertEqual(xai_env["XAI_API_KEY"], "x")
+            cloudflare_env = provider_env.freeze_provider_env(
+                "model_provider:cloudflare",
+                {
+                    "CLOUDFLARE_API_KEY": "cf",
+                    "CLOUDFLARE_ACCOUNT_ID": "account-id",
+                    "GROQ_API_KEY": "unrelated",
+                },
+            )
+            self.assertEqual(cloudflare_env["CLOUDFLARE_API_KEY"], "cf")
+            self.assertEqual(cloudflare_env["OPENAI_API_KEY"], "cf")
+            self.assertEqual(
+                cloudflare_env["CLOUDFLARE_BASE_URL"],
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
+            self.assertIsNone(cloudflare_env["GROQ_API_KEY"])
+            override_env = provider_env.freeze_provider_env(
+                "model_provider:cloudflare",
+                {
+                    "CLOUDFLARE_API_KEY": "cf",
+                    "CLOUDFLARE_BASE_URL": "https://gateway.example/v1/",
+                },
+            )
+            self.assertEqual(override_env["CLOUDFLARE_BASE_URL"], "https://gateway.example/v1")
+            with self.assertRaisesRegex(ValueError, "CLOUDFLARE_ACCOUNT_ID"):
+                provider_env.freeze_provider_env(
+                    "model_provider:cloudflare", {"CLOUDFLARE_API_KEY": "cf"}
+                )
             deepseek_env = provider_env.freeze_provider_env(
                 "model_provider:deepseek_alias", {"DEEPSEEK_API_KEY": "d"}
             )

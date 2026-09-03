@@ -108,6 +108,7 @@ class PluginExecutableClosureTest(unittest.TestCase):
             "budget_policy:default_basic",
             "model_provider:openrouter",
             "model_provider:orcarouter",
+            "model_provider:cloudflare",
             "tool_server:evaluation_tools",
             "tool_server:frontier_tools",
             "tool_server:finding_graph_query",
@@ -127,6 +128,7 @@ class PluginExecutableClosureTest(unittest.TestCase):
         self.assertTrue(hasattr(registry.require("budget_policy", "default_basic"), "decide"))
         self.assertTrue(hasattr(registry.require("model_provider", "openrouter"), "build_call"))
         self.assertTrue(hasattr(registry.require("model_provider", "orcarouter"), "build_call"))
+        self.assertTrue(hasattr(registry.require("model_provider", "cloudflare"), "build_call"))
         self.assertEqual(
             registry.require("tool_server", "memory_tools")["factory"],
             "praxist.plugins.tools.memory_tools.adapter:create_memory_tools_server",
@@ -185,6 +187,18 @@ class PluginExecutableClosureTest(unittest.TestCase):
         )
         self.assertEqual(manifest["provider"]["api_format"], "orcarouter")
         self.assertEqual(manifest["provider"]["default_model"], "orcarouter/auto")
+
+    def test_cloudflare_manifest_records_model_contract(self) -> None:
+        manifest = yaml.safe_load(
+            Path.cwd()
+            .joinpath("praxist", "plugins", "model_providers", "cloudflare", "plugin.yaml")
+            .read_text(encoding="utf-8")
+        )
+        self.assertEqual(manifest["provider"]["api_format"], "cloudflare_workers_ai")
+        self.assertEqual(
+            manifest["provider"]["default_model"],
+            "@cf/deepseek-ai/deepseek-v4-flash-0731",
+        )
 
     def test_project_agent_runtime_can_execute_through_entrypoint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

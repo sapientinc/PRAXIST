@@ -1129,6 +1129,13 @@ class CodexSdkAgentSystemTest(unittest.TestCase):
             resolved = start._resolve_model(None, "model_provider:custom", "claude_sdk")
         self.assertEqual(resolved, "")
 
+    def test_resolve_model_uses_cloudflare_provider_default(self) -> None:
+        from praxist.cli import start
+
+        with patch.dict(os.environ, {"MODEL": "", "PRAXIST_MODEL": ""}, clear=False):
+            resolved = start._resolve_model(None, start.CLOUDFLARE_PROVIDER_REF, "codex_sdk")
+        self.assertEqual(resolved, start.CLOUDFLARE_DEFAULT_MODEL)
+
     def test_praxist_agent_system_env_var_picks_codex_sdk(self) -> None:
         from praxist.cli import start
 

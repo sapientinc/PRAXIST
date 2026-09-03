@@ -36,6 +36,14 @@ class NormalizeModelForApiFormatTest(unittest.TestCase):
             "orcarouter/auto",
         )
 
+    def test_cloudflare_keeps_full_model_id(self) -> None:
+        self.assertEqual(
+            modeling._normalize_model_for_api_format(
+                "@cf/deepseek-ai/deepseek-v4-pro-0813", "cloudflare_workers_ai"
+            ),
+            "@cf/deepseek-ai/deepseek-v4-pro-0813",
+        )
+
     def test_openrouter_keeps_bare_name_unchanged(self) -> None:
         # Bare name into openrouter is the operator's responsibility;
         # we never invent a prefix.
@@ -271,6 +279,7 @@ class ProviderDefaultModelTest(unittest.TestCase):
             "model_provider:anthropic_messages": "claude-opus-4-7",
             "model_provider:openrouter": "anthropic/claude-opus-4.7",
             "model_provider:openai_compatible": "gpt-5.2",
+            "model_provider:cloudflare": "@cf/deepseek-ai/deepseek-v4-flash-0731",
             "model_provider:deepseek_alias": "deepseek-v4-pro[1m]",
             "model_provider:groq_alias": "llama-3.3-70b-versatile",
             "model_provider:mistral_alias": "mistral-large-latest",

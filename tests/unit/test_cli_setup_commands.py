@@ -240,11 +240,12 @@ class ConfigureLLMTest(CliRunnerMixin, unittest.TestCase):
             self.assertIn("export PRAXIST_MODEL=deepseek/demo", text)
             self.assertIn("export OPENROUTER_API_KEY=sk-project-secret", text)
 
-    def test_configure_llm_supports_groq_mistral_and_xai_aliases(self) -> None:
-        for short_name, key_name in (
-            ("groq", "GROQ_API_KEY"),
-            ("mistral", "MISTRAL_API_KEY"),
-            ("xai", "XAI_API_KEY"),
+    def test_configure_llm_supports_openai_compatible_provider_plugins(self) -> None:
+        for short_name, key_name, provider_ref in (
+            ("groq", "GROQ_API_KEY", "model_provider:groq_alias"),
+            ("mistral", "MISTRAL_API_KEY", "model_provider:mistral_alias"),
+            ("xai", "XAI_API_KEY", "model_provider:xai_alias"),
+            ("cloudflare", "CLOUDFLARE_API_KEY", "model_provider:cloudflare"),
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 config_file = Path(tmp) / "config" / "env"
@@ -266,7 +267,7 @@ class ConfigureLLMTest(CliRunnerMixin, unittest.TestCase):
                 text = config_file.read_text(encoding="utf-8")
                 self.assertIn(f"export PRAXIST_LLM_PROVIDER={short_name}", text)
                 self.assertIn(
-                    f"export PRAXIST_MODEL_PROVIDER_REF=model_provider:{short_name}_alias",
+                    f"export PRAXIST_MODEL_PROVIDER_REF={provider_ref}",
                     text,
                 )
                 self.assertIn(f"export {key_name}={secret}", text)

@@ -2943,6 +2943,7 @@ assets: []
 
     def test_new_provider_aliases_env_keys_select_respective_providers(self) -> None:
         cases = (
+            ("CLOUDFLARE_API_KEY", "cloudflare", "model_provider:cloudflare"),
             ("GROQ_API_KEY", "groq_alias", "model_provider:groq_alias"),
             ("MISTRAL_API_KEY", "mistral_alias", "model_provider:mistral_alias"),
             ("XAI_API_KEY", "xai_alias", "model_provider:xai_alias"),

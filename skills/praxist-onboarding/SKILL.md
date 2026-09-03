@@ -517,8 +517,12 @@ Common provider/key context:
 - Anthropic native: `ANTHROPIC_API_KEY`
 - OpenRouter: `OPENROUTER_API_KEY`
 - OrcaRouter: `ORCAROUTER_API_KEY`
+- Cloudflare Workers AI: `CLOUDFLARE_API_KEY` plus `CLOUDFLARE_ACCOUNT_ID`
 - DeepSeek direct: `DEEPSEEK_API_KEY`
 - OpenAI-compatible: `OPENAI_API_KEY`
+- Groq: `GROQ_API_KEY`
+- Mistral: `MISTRAL_API_KEY`
+- xAI: `XAI_API_KEY`
 - Agent system selector: `PRAXIST_AGENT_SYSTEM` or `--agent-system`
 - Provider selector: `PRAXIST_LLM_PROVIDER` or `--model-provider`
 - Config profile: command-local `--config-file`, then

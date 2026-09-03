@@ -19,6 +19,7 @@ from praxist.plugins.agent_runtimes.codex_sdk._relay import (
     needs_relay,
     provider_key_var,
     provider_name,
+    provider_upstream,
     start_relay,
 )
 
@@ -59,6 +60,7 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(provider_name("model_provider:groq_alias"), "groq")
         self.assertEqual(provider_name("model_provider:mistral_alias"), "mistral")
         self.assertEqual(provider_name("model_provider:xai_alias"), "xai")
+        self.assertEqual(provider_name("model_provider:cloudflare"), "cloudflare")
 
     def test_only_openai_uses_direct_responses_transport(self) -> None:
         self.assertFalse(needs_relay("openai"))
@@ -67,6 +69,7 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertTrue(needs_relay("groq"))
         self.assertTrue(needs_relay("mistral"))
         self.assertTrue(needs_relay("xai"))
+        self.assertTrue(needs_relay("cloudflare"))
 
     def test_provider_key_variables_are_explicit(self) -> None:
         self.assertEqual(provider_key_var("deepseek"), "DEEPSEEK_API_KEY")
@@ -74,7 +77,26 @@ class ProviderRoutingTest(unittest.TestCase):
         self.assertEqual(provider_key_var("groq"), "GROQ_API_KEY")
         self.assertEqual(provider_key_var("mistral"), "MISTRAL_API_KEY")
         self.assertEqual(provider_key_var("xai"), "XAI_API_KEY")
+        self.assertEqual(provider_key_var("cloudflare"), "CLOUDFLARE_API_KEY")
         self.assertEqual(provider_key_var("unknown"), "OPENAI_API_KEY")
+
+    def test_cloudflare_upstream_is_account_scoped_or_explicit(self) -> None:
+        with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-id"}, clear=True):
+            self.assertEqual(
+                provider_upstream("cloudflare"),
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
+        with patch.dict(
+            os.environ,
+            {"CLOUDFLARE_BASE_URL": "https://gateway.example/v1/"},
+            clear=True,
+        ):
+            self.assertEqual(provider_upstream("cloudflare"), "https://gateway.example/v1")
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            self.assertRaisesRegex(ValueError, "CLOUDFLARE_ACCOUNT_ID"),
+        ):
+            provider_upstream("cloudflare")
 
 
 class RelayLifecycleTest(unittest.TestCase):

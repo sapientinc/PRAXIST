@@ -128,6 +128,11 @@ _CONTEXT_EFFICIENCY_MODES = frozenset({"auto", "lossless", "off"})
 _CHATGPT_CREDENTIAL_PREFIX = "openai_compatible:codex_sdk:chatgpt:"
 _LOSSLESS_MAX_SHARED_FINDINGS = 48
 _LOSSLESS_MAX_MEMORY_PROMPT_CHARS = 24_000
+_OPENAI_COMPAT_PROVIDER_KEY_VARS = {
+    "model_provider:groq_alias": "GROQ_API_KEY",
+    "model_provider:mistral_alias": "MISTRAL_API_KEY",
+    "model_provider:xai_alias": "XAI_API_KEY",
+}
 _LOSSLESS_CONTINUATION_DIRECTIVE = """# Lossless Continuation Navigation
 
 This is a continuation session. The complete task contract remains above and
@@ -639,6 +644,8 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
         allowed = ("ANTHROPIC_API_KEY",)
     elif provider_ref == "model_provider:openai_compatible":
         allowed = ("OPENAI_API_KEY",)
+    elif provider_ref in _OPENAI_COMPAT_PROVIDER_KEY_VARS:
+        allowed = (_OPENAI_COMPAT_PROVIDER_KEY_VARS[provider_ref],)
     elif provider_ref == "model_provider:deepseek_alias":
         allowed = (
             "ANTHROPIC_BASE_URL",

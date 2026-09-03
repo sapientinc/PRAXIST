@@ -126,6 +126,7 @@ class CorePluginContractsTest(unittest.TestCase):
             "model_provider:openai_compatible",
             "model_provider:openrouter",
             "model_provider:orcarouter",
+            "model_provider:cloudflare",
             "model_provider:deepseek_alias",
             "model_provider:groq_alias",
             "model_provider:mistral_alias",

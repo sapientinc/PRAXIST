@@ -625,6 +625,9 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                 ("model_provider:openrouter", "ANTHROPIC_AUTH_TOKEN"),
                 ("model_provider:anthropic_messages", "ANTHROPIC_API_KEY"),
                 ("model_provider:openai_compatible", "OPENAI_API_KEY"),
+                ("model_provider:groq_alias", "GROQ_API_KEY"),
+                ("model_provider:mistral_alias", "MISTRAL_API_KEY"),
+                ("model_provider:xai_alias", "XAI_API_KEY"),
                 ("model_provider:deepseek_alias", "ANTHROPIC_AUTH_TOKEN"),
                 ("model_provider:fake_provider", None),
             ):
@@ -636,6 +639,9 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
                     "OPENAI_API_KEY": "openai",
                     "DEEPSEEK_API_KEY": "deepseek",
+                    "GROQ_API_KEY": "groq",
+                    "MISTRAL_API_KEY": "mistral",
+                    "XAI_API_KEY": "xai",
                 }
                 with patch.dict(os.environ, env, clear=True):
                     scoped = agent._scoped_legacy_provider_env()
@@ -658,6 +664,22 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                         self.assertEqual(
                             scoped["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic"
                         )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "PRAXIST_MODEL_PROVIDER_REF": "model_provider:cloudflare",
+                    "CLOUDFLARE_API_KEY": "cloudflare",
+                    "CLOUDFLARE_BASE_URL": "https://gateway.example/v1",
+                    "GROQ_API_KEY": "unrelated",
+                },
+                clear=True,
+            ):
+                scoped = agent._scoped_legacy_provider_env()
+            self.assertEqual(scoped["CLOUDFLARE_API_KEY"], "cloudflare")
+            self.assertEqual(scoped["OPENAI_API_KEY"], "cloudflare")
+            self.assertEqual(scoped["CLOUDFLARE_BASE_URL"], "https://gateway.example/v1")
+            self.assertNotIn("GROQ_API_KEY", scoped)
 
             with patch.dict(
                 os.environ,

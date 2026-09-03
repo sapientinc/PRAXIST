@@ -391,8 +391,10 @@ Before `start`, verify runtime readiness without printing secrets:
 - Inspect `task.yaml.runtime_environment` for `venv`, `python`, `cwd`,
   `path_prepend`, and non-secret env requirements.
 - Check provider key presence by name only. Common keys are
-  `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `ORCAROUTER_API_KEY`, `ANTHROPIC_API_KEY`, and
-  `OPENAI_API_KEY`.
+  `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `ORCAROUTER_API_KEY`,
+  `CLOUDFLARE_API_KEY`, `ANTHROPIC_API_KEY`, and `OPENAI_API_KEY`. Cloudflare
+  Workers AI also requires `CLOUDFLARE_ACCOUNT_ID` or a complete
+  `CLOUDFLARE_BASE_URL`.
 - If the selected runtime is `agent_runtime:codex_sdk`, verify the Praxist
   environment can import `openai_codex` and `mcp`, and verify distribution
   versions `openai-codex==0.147.0` and `claude-agent-sdk==0.2.136`. For
