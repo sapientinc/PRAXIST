@@ -3818,7 +3818,11 @@ class ExperimentSchedulerService:
                         raise ValueError("READY attempt identity mismatch")
                     if recorded_attempt and attempt_argument not in command:
                         raise ValueError("READY process command lacks attempt identity")
-                if recorded_start is not None and current_start is not None and int(recorded_start) != current_start:
+                if (
+                    recorded_start is not None
+                    and current_start is not None
+                    and int(recorded_start) != current_start
+                ):
                     raise ValueError("READY process identity was reused")
                 return {"pid": pid, "pgid": pgid}
             except (OSError, ValueError, TypeError, json.JSONDecodeError):

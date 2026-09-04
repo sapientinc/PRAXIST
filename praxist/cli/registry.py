@@ -43,7 +43,6 @@ SCHEMA_VERSION = 1
 """Current registry schema version.  Bumped only for breaking changes."""
 
 
-
 STATE_RUNNING = "running"
 STATE_STOPPED = "stopped"
 STATE_STALE = "stale"
@@ -375,7 +374,7 @@ def process_start_token(pid: int) -> str:
     ticks since boot. Other POSIX hosts fall back to the process start timestamp
     reported by ``ps`` so lifecycle commands remain usable without ``/proc``.
     """
-    if pid <= 0:
+    if not isinstance(pid, int) or pid <= 0:
         return ""
     try:
         raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
