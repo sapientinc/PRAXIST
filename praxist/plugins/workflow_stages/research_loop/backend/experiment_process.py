@@ -41,7 +41,7 @@ def _linux_process_group_activity(pgid: int) -> bool | None:
     if sys.platform != "linux":
         return None
     proc_root = Path("/proc")
-    if not proc_root.is_dir():
+    if not proc_root.is_dir():  # pragma: no cover - non-procfs Linux
         return None
 
     observed_member = False

@@ -265,7 +265,7 @@ def _is_process_group_alive(pgid: int) -> bool:
         return True
 
 
-def _darwin_pid_start_time(pid: int) -> str | None:
+def _darwin_pid_start_time(pid: int) -> str | None:  # pragma: no cover - Darwin-only
     """Query process start time on Darwin via libproc without subprocesses."""
 
     if not isinstance(pid, int) or pid <= 0:
@@ -318,7 +318,7 @@ def _pid_start_time(pid: int) -> int | str | None:
         return int(suffix.split()[19])
     except (OSError, ValueError, IndexError):
         pass
-    if sys.platform == "darwin":
+    if sys.platform == "darwin":  # pragma: no cover - Darwin-only
         darwin_start = _darwin_pid_start_time(pid)
         if darwin_start is not None:
             return darwin_start

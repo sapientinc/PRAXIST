@@ -3804,7 +3804,7 @@ class ExperimentSchedulerService:
                 current_start = _pid_start_time(pid)
                 try:
                     command = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
-                except FileNotFoundError:
+                except FileNotFoundError:  # pragma: no cover - Darwin fallback
                     if not Path("/proc").is_dir():
                         command = None
                     else:
@@ -3874,7 +3874,7 @@ class ExperimentSchedulerService:
             return False
         try:
             arguments = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
-        except FileNotFoundError:
+        except FileNotFoundError:  # pragma: no cover - Darwin fallback
             if not Path("/proc").is_dir():
                 arguments = None
             else:
