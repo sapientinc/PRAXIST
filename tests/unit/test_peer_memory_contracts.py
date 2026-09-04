@@ -1777,7 +1777,7 @@ class PeerMemoryHealthAggregationTest(unittest.TestCase):
         from praxist.plugins.workflow_stages.research_loop.backend import peer_memory
 
         with tempfile.TemporaryDirectory() as tmp:
-            run_dir = Path(tmp) / "run"
+            run_dir = Path(tmp).resolve() / "run"
             for peer_id, score in (("gen0_peer0", 0.71), ("gen0_peer1", 0.66)):
                 self._write_state(run_dir, peer_id, {"last_session_success": True})
                 self._write_result(run_dir, peer_id, score)

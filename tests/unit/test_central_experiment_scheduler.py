@@ -612,7 +612,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_recovered_queued_task_reapplies_task_runtime_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             evaluator = task_root / "evaluations" / "run.py"
             task_python = task_root / ".venv" / "bin" / "python"
@@ -679,7 +679,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_recovered_job_rebases_task_owned_paths_after_checkout_moves(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             old_root = root / "old" / "task"
             new_root = root / "new" / "task"
             old_workspace = root / "old"
@@ -972,7 +972,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_task_child_drops_runner_python_paths_unless_task_declares_them(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            task_root = Path(td) / "task"
+            task_root = Path(td).resolve() / "task"
             task_root.mkdir()
             service = ExperimentSchedulerService(
                 run_dir=Path(td) / "run",
@@ -1425,6 +1425,8 @@ class ExperimentSchedulerTest(unittest.TestCase):
                 resumed.stop()
 
     def test_launch_intent_finds_delayed_ready_process_without_requeue(self) -> None:
+        if not Path("/proc").is_dir():
+            self.skipTest("/proc filesystem required for process cmdline inspection")
         with tempfile.TemporaryDirectory() as td:
             run_dir = Path(td) / "run"
             interrupted = ExperimentSchedulerService(
@@ -2398,7 +2400,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
             finally:
                 os.chdir(previous)
             self.assertTrue(service.run_dir.is_absolute())
-            self.assertEqual(service.run_dir, Path(td) / "relative-run")
+            self.assertEqual(service.run_dir, Path(td).resolve() / "relative-run")
 
     def test_unknown_explicit_profile_is_rejected_without_default_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -2460,10 +2462,10 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_final_launcher_preserves_submitter_environment_and_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            run_dir = Path(td) / "run"
-            work_dir = Path(td) / "peer-workspace"
+            run_dir = Path(td).resolve() / "run"
+            work_dir = Path(td).resolve() / "peer-workspace"
             work_dir.mkdir()
-            output = Path(td) / "context.json"
+            output = Path(td).resolve() / "context.json"
             service = ExperimentSchedulerService(
                 run_dir=run_dir,
                 settings=_settings(maximum=1),
@@ -2498,7 +2500,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_relative_evaluator_runs_from_task_root_with_isolated_python_environment(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             run_dir = root / "run"
             task_root = root / "task"
             caller_cwd = run_dir / "gen_0" / "peer_workspace"
@@ -3160,6 +3162,8 @@ class ExperimentSchedulerTest(unittest.TestCase):
             self.assertNotIn(job.job_id, service._queue)
 
     def test_legacy_event_and_manifest_pair_recovers_live_job(self) -> None:
+        if not Path("/proc").is_dir():
+            self.skipTest("/proc filesystem required for process environment inspection")
         with tempfile.TemporaryDirectory() as td:
             run_dir = Path(td) / "run"
             process_env = {
@@ -3388,8 +3392,8 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_launch_intent_recovers_waiting_barrier_without_duplicate_execution(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            run_dir = Path(td) / "run"
-            marker = Path(td) / "executed"
+            run_dir = Path(td).resolve() / "run"
+            marker = Path(td).resolve() / "executed"
             first = ExperimentSchedulerService(
                 run_dir=run_dir,
                 settings=_settings(maximum=1),
@@ -3493,7 +3497,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_recovery_requeues_waiting_barrier_after_task_checkout_moves(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             run_dir = root / "run"
             old_task = root / "old" / "task"
             new_task = root / "new" / "task"
@@ -4370,7 +4374,7 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
     def test_nested_task_child_reuses_the_shared_task_runtime_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             run_dir = root / "run"
             caller_cwd = run_dir / "attempt"

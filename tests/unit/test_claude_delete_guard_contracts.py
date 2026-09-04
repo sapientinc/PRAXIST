@@ -248,7 +248,7 @@ class ClaudeDeleteGuardContractsTest(unittest.TestCase):
         from praxist.plugins.agent_runtimes.claude_sdk import delete_guard
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             target = root / "target"
             target.mkdir()
             matching = root / "matching"

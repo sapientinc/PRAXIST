@@ -518,7 +518,7 @@ class SchedulerClientBoundaryTest(unittest.TestCase):
 
     def test_static_shell_wrappers_use_the_declared_task_interpreter(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             run_cwd = root / "run"
             evaluator = task_root / "evaluations" / "run.py"
@@ -567,7 +567,7 @@ class SchedulerClientBoundaryTest(unittest.TestCase):
 
     def test_static_env_chdir_runs_task_evaluator_from_non_task_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             run_cwd = root / "run"
             evaluator = task_root / "evaluations" / "v2" / "run.py"

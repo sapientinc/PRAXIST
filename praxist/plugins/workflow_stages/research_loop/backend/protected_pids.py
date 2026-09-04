@@ -76,7 +76,7 @@ def _run_dir_from_protected_env() -> Path | None:
     override = os.environ.get(ENV_PROTECTED_DIR)
     if not override:
         return None
-    protected_dir = Path(override)
+    protected_dir = Path(override).expanduser().resolve(strict=False)
     return protected_dir.parent if protected_dir.name == "protected_pids" else None
 
 

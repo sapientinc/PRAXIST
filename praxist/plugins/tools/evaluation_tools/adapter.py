@@ -15,6 +15,7 @@ import logging
 import math
 import os
 import re
+import tempfile
 import time
 from contextlib import suppress
 from datetime import datetime
@@ -709,7 +710,14 @@ async def _handle_wait_for_file_impl(args: dict[str, Any]) -> dict[str, Any]:
             allowed_roots.append(repo_root)
     except IndexError:
         pass
+    try:
+        temp_root = Path(tempfile.gettempdir()).resolve()
+        if temp_root not in DANGEROUS_ROOTS:
+            allowed_roots.append(temp_root)
+    except (OSError, RuntimeError):
+        pass
     allowed_roots.append(Path("/tmp").resolve())
+    allowed_roots.append(Path("/var/tmp").resolve())
 
     def _path_allowed(rp: Path) -> bool:
         for root in allowed_roots:

@@ -43,6 +43,7 @@ SCHEMA_VERSION = 1
 """Current registry schema version.  Bumped only for breaking changes."""
 
 
+
 STATE_RUNNING = "running"
 STATE_STOPPED = "stopped"
 STATE_STALE = "stale"
@@ -390,7 +391,7 @@ def process_start_token(pid: int) -> str:
     if not ps:
         return ""
     try:
-        result = subprocess.run(
+        completed = subprocess.run(
             [ps, "-p", str(pid), "-o", "lstart="],
             check=False,
             capture_output=True,
@@ -398,11 +399,12 @@ def process_start_token(pid: int) -> str:
             timeout=2,
             env={"LANG": "C", "LC_ALL": "C"},
         )
-    except (OSError, subprocess.TimeoutExpired):
+        if completed.returncode == 0 and completed.stdout:
+            started = " ".join(completed.stdout.split())
+            if started:
+                return f"ps:{started}"
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
         return ""
-    started = " ".join(result.stdout.split())
-    if result.returncode == 0 and started:
-        return f"ps:{started}"
     return ""
 
 
