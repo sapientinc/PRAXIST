@@ -402,7 +402,7 @@ _REGISTERED_RUNTIME_TMP_LINKS: set[tuple[Path, Path]] = set()
 def _cleanup_runtime_tmp_link(link: Path, target: Path) -> None:
     try:
         st = link.lstat()
-        if stat.S_ISLNK(st.st_mode) and link.resolve(strict=False) == target:
+        if stat.S_ISLNK(st.st_mode) and link.resolve(strict=False) == target.resolve(strict=False):
             link.unlink()
     except (OSError, RuntimeError):
         pass
@@ -464,7 +464,7 @@ def _ensure_short_runtime_tmp(
                 continue
             if hasattr(os, "geteuid") and st.st_uid != os.geteuid():
                 continue
-            if candidate.resolve(strict=False) != fallback:
+            if candidate.resolve(strict=False) != fallback.resolve(strict=False):
                 continue
             _register_runtime_tmp_link(candidate, fallback)
             return candidate
@@ -3935,6 +3935,21 @@ import time
 import fcntl
 from urllib.parse import parse_qs, unquote, urlparse
 
+try:
+    _this_dir = os.path.dirname(os.path.abspath(__file__))
+    for _path_entry in list(sys.path):
+        if _path_entry and os.path.abspath(_path_entry) != _this_dir:
+            _cand = os.path.join(_path_entry, "sitecustomize.py")
+            if os.path.isfile(_cand):
+                import importlib.util as _importlib_util
+                _spec = _importlib_util.spec_from_file_location("_next_sitecustomize", _cand)
+                if _spec and _spec.loader:
+                    _mod = _importlib_util.module_from_spec(_spec)
+                    _spec.loader.exec_module(_mod)
+                break
+except Exception:
+    pass
+
 _ROOTS = [
     pathlib.Path(p).expanduser().resolve()
     for p in os.environ.get("PRAXIST_SAFE_DELETE_ROOTS", "").split(os.pathsep)
@@ -3989,9 +4004,15 @@ _RUNTIME_TMP_APPARENT = (
     else None
 )
 _RUNTIME_TEMP_DELETE_DIRS = tuple(
-    pathlib.Path(raw).expanduser().resolve()
-    for raw in ("/dev/shm", os.environ.get("TMPDIR", ""), "/tmp", "/var/tmp")
-    if raw
+    dict.fromkeys(
+        path
+        for raw in ("/dev/shm", os.environ.get("TMPDIR", ""), "/tmp", "/var/tmp")
+        if raw
+        for path in (
+            pathlib.Path(raw).expanduser().absolute(),
+            pathlib.Path(raw).expanduser().resolve(),
+        )
+    )
 )
 
 
@@ -4378,24 +4399,26 @@ def _is_runtime_temp_delete_path(path, cwd=None) -> bool:
 
     try:
         apparent = _apparent_path(path, cwd=cwd)
-        resolved_parent = apparent.parent.resolve()
+        apparent_parent = apparent.parent
+        resolved_parent = apparent_parent.resolve()
     except Exception:
         return False
     for root in _RUNTIME_TEMP_DELETE_DIRS:
-        try:
-            relative = apparent.relative_to(root)
-        except ValueError:
-            continue
-        if any(
-            part.startswith(prefix)
-            for part in relative.parts
-            for prefix in _RUNTIME_TEMP_DELETE_PREFIXES
-        ) and (
-            resolved_parent == root
-            or root in resolved_parent.parents
-            or _under_allowed(resolved_parent)
-        ):
-            return True
+        for parent in (apparent_parent, resolved_parent):
+            try:
+                relative = parent.relative_to(root)
+            except ValueError:
+                continue
+            if any(
+                part.startswith(prefix)
+                for part in (relative.parts + (apparent.name,))
+                for prefix in _RUNTIME_TEMP_DELETE_PREFIXES
+            ) and (
+                parent == root
+                or root in parent.parents
+                or _under_allowed(resolved_parent)
+            ):
+                return True
     return False
 
 
@@ -4406,12 +4429,14 @@ def _is_stdlib_tempfile_cleanup(path, cwd=None) -> bool:
         return False
     try:
         apparent = _apparent_path(path, cwd=cwd)
-        resolved_parent = apparent.parent.resolve()
+        apparent_parent = apparent.parent
+        resolved_parent = apparent_parent.resolve()
         st = apparent.lstat()
     except (FileNotFoundError, OSError):
         return False
     if not any(
-        resolved_parent == root or root in resolved_parent.parents
+        parent == root or root in parent.parents
+        for parent in (apparent_parent, resolved_parent)
         for root in _RUNTIME_TEMP_DELETE_DIRS
     ):
         return False

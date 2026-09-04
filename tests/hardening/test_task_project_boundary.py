@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,7 +138,7 @@ class TaskProjectBoundaryTest(unittest.TestCase):
 
         evaluator_help = subprocess.run(
             [
-                "python",
+                sys.executable,
                 str(task_root / "evaluations" / "primary" / "run.py"),
                 "--help",
             ],

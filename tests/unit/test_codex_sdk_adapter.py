@@ -911,7 +911,7 @@ class RuntimeExecutionTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(runtime.aclose)
         harness = _SdkHarness()
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             run_dir = root / "run"
             run_dir.mkdir()
             codex_home = root / "operator-codex"

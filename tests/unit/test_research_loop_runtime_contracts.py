@@ -1252,7 +1252,7 @@ class RuntimeResourceGuardContractsTest(unittest.TestCase):
         from praxist.plugins.workflow_stages.research_loop.backend import protected_pids
 
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             task_root = root / "task"
             caller_cwd = root / "run" / "gen_0" / "peer"
             evaluator = task_root / "evaluations" / "run.py"

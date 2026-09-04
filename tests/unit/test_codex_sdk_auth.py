@@ -394,7 +394,7 @@ class ChatGptCredentialDiscoveryTest(unittest.TestCase):
         from praxist.plugins.agent_runtimes.codex_sdk._auth import stage_chatgpt_home
 
         with tempfile.TemporaryDirectory() as tmp:
-            operator_home = Path(tmp)
+            operator_home = Path(tmp).resolve()
             marker = operator_home / "config.toml"
             marker.write_text('model = "operator-default"\n', encoding="utf-8")
             staged = stage_chatgpt_home(operator_home)

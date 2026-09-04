@@ -22,7 +22,7 @@ from praxist.plugins.workflow_stages.research_loop.startup import (
 class CurrentFunctionMigrationTest(unittest.TestCase):
     def test_terminal_finalization_requests_final_report_after_completed_work(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             run_dir = root / "run_terminal_report"
             with patch.dict(os.environ, {}, clear=False):
                 prepared = prepare_research_loop_plugin_run(
@@ -65,7 +65,7 @@ class CurrentFunctionMigrationTest(unittest.TestCase):
 
     def test_failed_zero_generation_run_still_requests_final_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             run_dir = root / "run_failed_before_generation"
             with patch.dict(os.environ, {}, clear=False):
                 prepared = prepare_research_loop_plugin_run(
@@ -128,7 +128,7 @@ class CurrentFunctionMigrationTest(unittest.TestCase):
 
     def test_startup_loads_external_task_project_and_writes_replay_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             run_dir = root / "run_gate8_toy"
             with patch.dict(os.environ, {}, clear=False):
                 prepared = prepare_research_loop_plugin_run(
