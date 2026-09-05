@@ -194,6 +194,14 @@ class LaunchBarrierBoundaryTest(unittest.TestCase):
 
         self.assertEqual(observed, "ps:Thu Sep 5 10:11:12 2026")
 
+    def test_barrier_tolerates_ps_identity_probe_failure(self) -> None:
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+            patch.object(experiment_exec.shutil, "which", return_value="/usr/bin/ps"),
+            patch.object(experiment_exec.subprocess, "run", side_effect=OSError("ps unavailable")),
+        ):
+            self.assertIsNone(experiment_exec._pid_start_time(4321))
+
     def test_barrier_times_out_without_scheduler_commit(self) -> None:
         with (
             tempfile.TemporaryDirectory() as td,
