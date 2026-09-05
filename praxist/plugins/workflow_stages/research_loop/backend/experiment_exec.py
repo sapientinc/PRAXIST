@@ -4,9 +4,37 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
+
+
+def _pid_start_time(pid: int) -> int | str | None:
+    """Return the launcher's process-instance token without project imports."""
+
+    try:
+        suffix = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1]
+        return int(suffix.split()[19])
+    except (OSError, ValueError, IndexError):
+        pass
+    ps = shutil.which("ps")
+    if not ps:
+        return None
+    try:
+        completed = subprocess.run(
+            [ps, "-p", str(pid), "-o", "lstart="],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            env={"LANG": "C", "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    started = " ".join(completed.stdout.split())
+    return f"ps:{started}" if completed.returncode == 0 and started else None
 
 
 def main() -> int:
@@ -18,11 +46,7 @@ def main() -> int:
     go_path = Path(sys.argv[2])
     attempt_id = sys.argv[3]
     command = sys.argv[4:]
-    try:
-        suffix = Path(f"/proc/{os.getpid()}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1]
-        pid_start_time = int(suffix.split()[19])
-    except (OSError, ValueError, IndexError):
-        pid_start_time = None
+    pid_start_time = _pid_start_time(os.getpid())
     temporary = ready_path.with_suffix(".tmp")
     temporary.write_text(
         json.dumps(

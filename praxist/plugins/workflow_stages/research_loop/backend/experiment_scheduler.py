@@ -3801,29 +3801,23 @@ class ExperimentSchedulerService:
                 pgid = int(payload.get("pgid", 0) or 0)
                 recorded_attempt = str(payload.get("attempt_id", ""))
                 recorded_start = payload.get("pid_start_time")
+                if pid <= 0 or pgid <= 1:
+                    raise ValueError("READY process identity is invalid")
+                if recorded_attempt != attempt_id:
+                    raise ValueError("READY attempt identity mismatch")
                 current_start = _pid_start_time(pid)
-                try:
+                if recorded_start is None or current_start is None:
+                    raise ValueError("READY process start identity is unavailable")
+                if str(recorded_start) != str(current_start):
+                    raise ValueError("READY process identity was reused")
+                if Path("/proc").is_dir():
                     command = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
-                except FileNotFoundError:  # pragma: no cover - Darwin fallback
-                    if not Path("/proc").is_dir():
-                        command = None
-                    else:
-                        raise
-                if command is not None:
                     ready_argument = str(ready_path).encode("utf-8")
                     attempt_argument = attempt_id.encode("utf-8")
                     if ready_argument not in command:
                         raise ValueError("READY process does not own this attempt path")
-                    if recorded_attempt and recorded_attempt != attempt_id:
-                        raise ValueError("READY attempt identity mismatch")
-                    if recorded_attempt and attempt_argument not in command:
+                    if attempt_argument not in command:
                         raise ValueError("READY process command lacks attempt identity")
-                if (
-                    recorded_start is not None
-                    and current_start is not None
-                    and int(recorded_start) != current_start
-                ):
-                    raise ValueError("READY process identity was reused")
                 return {"pid": pid, "pgid": pgid}
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 time.sleep(0.05)
@@ -3866,28 +3860,21 @@ class ExperimentSchedulerService:
             return False
         recorded_start = event.get("pid_start_time")
         if recorded_start is not None:
-            try:
-                return int(recorded_start) == _pid_start_time(pid)
-            except (TypeError, ValueError):
-                return False
+            current_start = _pid_start_time(pid)
+            return current_start is not None and str(recorded_start) == str(current_start)
         if attempt_dir is None:
+            return False
+        if not Path("/proc").is_dir():
             return False
         try:
             arguments = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
-        except FileNotFoundError:  # pragma: no cover - Darwin fallback
-            if not Path("/proc").is_dir():
-                arguments = None
-            else:
-                return False
         except OSError:
             return False
-        if arguments is not None:
-            ready_argument = str(attempt_dir / "READY.json").encode("utf-8")
-            attempt_id = str(event.get("attempt_id", ""))
-            return ready_argument in arguments and (
-                not attempt_id or attempt_id.encode("utf-8") in arguments
-            )
-        return True
+        ready_argument = str(attempt_dir / "READY.json").encode("utf-8")
+        attempt_id = str(event.get("attempt_id", ""))
+        return ready_argument in arguments and (
+            not attempt_id or attempt_id.encode("utf-8") in arguments
+        )
 
     @staticmethod
     def _release_launch_barrier(attempt_dir: Path) -> None:

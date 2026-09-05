@@ -3931,24 +3931,10 @@ import sqlite3
 import ctypes
 import _ctypes
 import importlib.machinery
+import importlib.util
 import time
 import fcntl
 from urllib.parse import parse_qs, unquote, urlparse
-
-try:
-    _this_dir = os.path.dirname(os.path.abspath(__file__))
-    for _path_entry in list(sys.path):
-        if _path_entry and os.path.abspath(_path_entry) != _this_dir:
-            _cand = os.path.join(_path_entry, "sitecustomize.py")
-            if os.path.isfile(_cand):
-                import importlib.util as _importlib_util
-                _spec = _importlib_util.spec_from_file_location("_next_sitecustomize", _cand)
-                if _spec and _spec.loader:
-                    _mod = _importlib_util.module_from_spec(_spec)
-                    _spec.loader.exec_module(_mod)
-                break
-except Exception:
-    pass
 
 _ROOTS = [
     pathlib.Path(p).expanduser().resolve()
@@ -4404,21 +4390,21 @@ def _is_runtime_temp_delete_path(path, cwd=None) -> bool:
     except Exception:
         return False
     for root in _RUNTIME_TEMP_DELETE_DIRS:
-        for parent in (apparent_parent, resolved_parent):
-            try:
-                relative = parent.relative_to(root)
-            except ValueError:
-                continue
-            if any(
-                part.startswith(prefix)
-                for part in (relative.parts + (apparent.name,))
-                for prefix in _RUNTIME_TEMP_DELETE_PREFIXES
-            ) and (
-                parent == root
-                or root in parent.parents
-                or _under_allowed(resolved_parent)
-            ):
-                return True
+        try:
+            relative = apparent_parent.relative_to(root)
+            resolved_root = root.resolve()
+        except (OSError, RuntimeError, ValueError):
+            continue
+        if any(
+            part.startswith(prefix)
+            for part in (relative.parts + (apparent.name,))
+            for prefix in _RUNTIME_TEMP_DELETE_PREFIXES
+        ) and (
+            resolved_parent == resolved_root
+            or resolved_root in resolved_parent.parents
+            or _under_allowed(resolved_parent)
+        ):
+            return True
     return False
 
 
@@ -4435,8 +4421,12 @@ def _is_stdlib_tempfile_cleanup(path, cwd=None) -> bool:
     except (FileNotFoundError, OSError):
         return False
     if not any(
-        parent == root or root in parent.parents
-        for parent in (apparent_parent, resolved_parent)
+        (apparent_parent == root or root in apparent_parent.parents)
+        and (
+            resolved_parent == root.resolve()
+            or root.resolve() in resolved_parent.parents
+            or _under_allowed(resolved_parent)
+        )
         for root in _RUNTIME_TEMP_DELETE_DIRS
     ):
         return False
@@ -6643,6 +6633,24 @@ if _orig_posix_spawnp is not None:
 for _name in list(globals()):
     if _name.startswith("_orig_") and _name != "_orig_for":
         globals()[_name] = None
+
+# Preserve an existing interpreter/site customization, but only after Praxist's
+# filesystem and subprocess guards are active. Resolve candidates so an alias of
+# this generated directory cannot recursively load the guard itself.
+try:
+    _this_file = pathlib.Path(__file__).resolve()
+    for _path_entry in list(sys.path):
+        if not _path_entry:
+            continue
+        _candidate = pathlib.Path(_path_entry) / "sitecustomize.py"
+        if _candidate.is_file() and _candidate.resolve() != _this_file:
+            _spec = importlib.util.spec_from_file_location("_next_sitecustomize", _candidate)
+            if _spec and _spec.loader:
+                _module = importlib.util.module_from_spec(_spec)
+                _spec.loader.exec_module(_module)
+            break
+except Exception:
+    pass
 '''
     return (
         body.replace("__PRAXIST_PROTECTED_ROOT_ENV_KEYS__", repr(PROTECTED_ROOT_ENV_KEYS))

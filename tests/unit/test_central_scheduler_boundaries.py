@@ -172,10 +172,27 @@ class LaunchBarrierBoundaryTest(unittest.TestCase):
                     ["experiment_exec", str(ready), str(go), "attempt-2", "task"],
                 ),
                 patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+                patch.object(experiment_exec.shutil, "which", return_value=None),
                 patch.object(os, "execvpe", side_effect=OSError("not executable")),
             ):
                 self.assertEqual(experiment_exec.main(), 75)
             self.assertIsNone(json.loads(ready.read_text(encoding="utf-8"))["pid_start_time"])
+
+    def test_barrier_uses_ps_identity_without_procfs(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="Thu Sep  5 10:11:12 2026\n",
+            stderr="",
+        )
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+            patch.object(experiment_exec.shutil, "which", return_value="/usr/bin/ps"),
+            patch.object(experiment_exec.subprocess, "run", return_value=completed),
+        ):
+            observed = experiment_exec._pid_start_time(4321)
+
+        self.assertEqual(observed, "ps:Thu Sep 5 10:11:12 2026")
 
     def test_barrier_times_out_without_scheduler_commit(self) -> None:
         with (

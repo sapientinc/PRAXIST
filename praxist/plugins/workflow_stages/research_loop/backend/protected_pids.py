@@ -29,7 +29,6 @@ import logging
 import os
 import re
 import subprocess
-import sys
 import time
 from collections.abc import Generator
 from dataclasses import asdict, dataclass
@@ -265,51 +264,6 @@ def _is_process_group_alive(pgid: int) -> bool:
         return True
 
 
-def _darwin_pid_start_time(pid: int) -> str | None:  # pragma: no cover - Darwin-only
-    """Query process start time on Darwin via libproc without subprocesses."""
-
-    if not isinstance(pid, int) or pid <= 0:
-        return None
-    try:
-        import ctypes
-        from ctypes import Structure, c_int32, c_int64, c_uint32, sizeof
-
-        class _ProcBsdInfo(Structure):
-            _fields_ = [
-                ("pbi_flags", c_uint32),
-                ("pbi_status", c_uint32),
-                ("pbi_xstatus", c_uint32),
-                ("pbi_pid", c_uint32),
-                ("pbi_ppid", c_uint32),
-                ("pbi_uid", c_uint32),
-                ("pbi_gid", c_uint32),
-                ("pbi_ruid", c_uint32),
-                ("pbi_rgid", c_uint32),
-                ("pbi_svuid", c_uint32),
-                ("pbi_svgid", c_uint32),
-                ("rfu_1", c_uint32),
-                ("pbi_comm", ctypes.c_char * 16),
-                ("pbi_name", ctypes.c_char * 32),
-                ("pbi_nfiles", c_uint32),
-                ("pbi_pgid", c_uint32),
-                ("pbi_pjobc", c_uint32),
-                ("e_tdev", c_uint32),
-                ("e_tpgid", c_uint32),
-                ("pbi_nice", c_int32),
-                ("pbi_start_tvsec", c_int64),
-                ("pbi_start_tvusec", c_int64),
-            ]
-
-        libproc = ctypes.CDLL("libproc.dylib")
-        info = _ProcBsdInfo()
-        ret = libproc.proc_pidinfo(pid, 3, 0, ctypes.byref(info), sizeof(info))
-        if ret == sizeof(info):
-            return f"darwin:{info.pbi_start_tvsec}.{info.pbi_start_tvusec}"
-    except Exception:
-        pass
-    return None
-
-
 def _pid_start_time(pid: int) -> int | str | None:
     """Return a stable POSIX process-start identity for PID-reuse detection."""
 
@@ -318,10 +272,6 @@ def _pid_start_time(pid: int) -> int | str | None:
         return int(suffix.split()[19])
     except (OSError, ValueError, IndexError):
         pass
-    if sys.platform == "darwin":  # pragma: no cover - Darwin-only
-        darwin_start = _darwin_pid_start_time(pid)
-        if darwin_start is not None:
-            return darwin_start
     from praxist.cli.registry import process_start_token
 
     return process_start_token(pid) or None
@@ -333,9 +283,7 @@ def _entry_process_identity_matches(entry: ProtectedEntry) -> bool:
     if entry.pid_start_time is None:
         return True
     current = _pid_start_time(entry.pid)
-    if current is None:
-        return True
-    return current == entry.pid_start_time
+    return current is not None and str(current) == str(entry.pid_start_time)
 
 
 def _entry_is_alive(entry: ProtectedEntry) -> bool:

@@ -6,11 +6,100 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
 
 class ClaudeDeleteGuardContractsTest(unittest.TestCase):
+    def test_runtime_temp_prefix_cannot_escape_through_parent_symlink(self) -> None:
+        from praxist.plugins.agent_runtimes.claude_sdk.delete_guard import (
+            prepare_delete_guard_env,
+        )
+
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            run_dir = Path(tmp) / "task" / "experiments" / "run"
+            protected_dir = run_dir / "shared_findings"
+            protected_dir.mkdir(parents=True)
+            protected_file = protected_dir / "finding.json"
+            protected_file.write_text("keep", encoding="utf-8")
+            escape_link = Path("/tmp") / f"pym-praxist-guard-{uuid.uuid4().hex}"
+            escape_link.symlink_to(protected_dir, target_is_directory=True)
+            guarded = prepare_delete_guard_env(
+                {**os.environ, "PRAXIST_RUN_DIR": str(run_dir), "PEER_ID": "gen0_peer0"},
+                workspace=run_dir,
+                agent_name="gen0_peer0",
+            )
+            runtime_tmp = Path(guarded["TMPDIR"])
+            try:
+                probe = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import os,sys; os.unlink(sys.argv[1])",
+                        str(escape_link / protected_file.name),
+                    ],
+                    env=guarded,
+                    cwd=run_dir,
+                    text=True,
+                    capture_output=True,
+                    timeout=20,
+                )
+                self.assertNotEqual(probe.returncode, 0)
+                self.assertTrue(protected_file.exists())
+            finally:
+                escape_link.unlink(missing_ok=True)
+                runtime_tmp.unlink(missing_ok=True)
+
+    def test_chained_sitecustomize_runs_after_delete_guard_activation(self) -> None:
+        from praxist.plugins.agent_runtimes.claude_sdk.delete_guard import (
+            prepare_delete_guard_env,
+        )
+
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            task_root = Path(tmp) / "task"
+            run_dir = task_root / "experiments" / "run"
+            protected_dir = run_dir / "shared_findings"
+            startup_dir = task_root / "startup"
+            protected_dir.mkdir(parents=True)
+            startup_dir.mkdir(parents=True)
+            protected_file = protected_dir / "finding.json"
+            protected_file.write_text("keep", encoding="utf-8")
+            (startup_dir / "sitecustomize.py").write_text(
+                "import os\n"
+                "try:\n"
+                "    os.unlink(os.environ['PRAXIST_TEST_PROTECTED_FILE'])\n"
+                "except PermissionError:\n"
+                "    print('chained_sitecustomize_guarded')\n",
+                encoding="utf-8",
+            )
+            guarded = prepare_delete_guard_env(
+                {
+                    **os.environ,
+                    "PYTHONPATH": str(startup_dir),
+                    "PRAXIST_RUN_DIR": str(run_dir),
+                    "PEER_ID": "gen0_peer0",
+                    "PRAXIST_TEST_PROTECTED_FILE": str(protected_file),
+                },
+                workspace=run_dir,
+                agent_name="gen0_peer0",
+            )
+            runtime_tmp = Path(guarded["TMPDIR"])
+            try:
+                probe = subprocess.run(
+                    [sys.executable, "-c", "pass"],
+                    env=guarded,
+                    cwd=run_dir,
+                    text=True,
+                    capture_output=True,
+                    timeout=20,
+                )
+                self.assertEqual(probe.returncode, 0, probe.stderr)
+                self.assertIn("chained_sitecustomize_guarded", probe.stdout)
+                self.assertTrue(protected_file.exists())
+            finally:
+                runtime_tmp.unlink(missing_ok=True)
+
     def test_long_run_path_uses_short_tmpdir_for_multiprocessing(self) -> None:
         from praxist.plugins.agent_runtimes.claude_sdk.delete_guard import (
             prepare_delete_guard_env,

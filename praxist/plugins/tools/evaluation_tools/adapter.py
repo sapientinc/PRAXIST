@@ -717,7 +717,6 @@ async def _handle_wait_for_file_impl(args: dict[str, Any]) -> dict[str, Any]:
     except (OSError, RuntimeError):
         pass
     allowed_roots.append(Path("/tmp").resolve())
-    allowed_roots.append(Path("/var/tmp").resolve())
 
     def _path_allowed(rp: Path) -> bool:
         for root in allowed_roots:

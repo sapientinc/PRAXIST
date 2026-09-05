@@ -1942,6 +1942,23 @@ class ExperimentSchedulerTest(unittest.TestCase):
                         {"pid": 1, "pgid": 1, "pid_start_time": "bad"}, attempt_dir=None
                     )
                 )
+            with (
+                patch.object(Path, "is_dir", return_value=False),
+                patch(
+                    "praxist.plugins.workflow_stages.research_loop.backend."
+                    "experiment_scheduler._pid_start_time",
+                    return_value="ps:stable-start",
+                ),
+            ):
+                self.assertTrue(
+                    service._event_process_matches(
+                        {"pid": 1, "pgid": 1, "pid_start_time": "ps:stable-start"},
+                        attempt_dir=Path(td),
+                    )
+                )
+                self.assertFalse(
+                    service._event_process_matches({"pid": 1, "pgid": 1}, attempt_dir=Path(td))
+                )
             self.assertFalse(
                 service._event_process_matches({"pid": 1, "pgid": 1}, attempt_dir=None)
             )
@@ -2164,6 +2181,56 @@ class ExperimentSchedulerTest(unittest.TestCase):
                     ExperimentSchedulerService._read_ready_process(attempt_dir, "attempt-a1"),
                     {"pid": 123, "pgid": 123},
                 )
+
+            portable_payload = json.dumps(
+                {
+                    "pid": 123,
+                    "pgid": 123,
+                    "attempt_id": "attempt-a1",
+                    "pid_start_time": "ps:stable-start",
+                }
+            )
+            with (
+                patch.object(Path, "read_text", return_value=portable_payload),
+                patch.object(Path, "is_dir", return_value=False),
+                patch(
+                    "praxist.plugins.workflow_stages.research_loop.backend."
+                    "experiment_scheduler._pid_start_time",
+                    return_value="ps:stable-start",
+                ),
+            ):
+                self.assertEqual(
+                    ExperimentSchedulerService._read_ready_process(attempt_dir, "attempt-a1"),
+                    {"pid": 123, "pgid": 123},
+                )
+
+            for invalid_portable in (
+                {**json.loads(portable_payload), "attempt_id": "other"},
+                {**json.loads(portable_payload), "pid_start_time": None},
+            ):
+                with (
+                    self.subTest(portable_payload=invalid_portable),
+                    patch.object(Path, "read_text", return_value=json.dumps(invalid_portable)),
+                    patch.object(Path, "is_dir", return_value=False),
+                    patch(
+                        "praxist.plugins.workflow_stages.research_loop.backend."
+                        "experiment_scheduler._pid_start_time",
+                        return_value="ps:stable-start",
+                    ),
+                    patch(
+                        "praxist.plugins.workflow_stages.research_loop.backend."
+                        "experiment_scheduler.time.monotonic",
+                        side_effect=[0.0, 0.0, 3.0],
+                    ),
+                    patch(
+                        "praxist.plugins.workflow_stages.research_loop.backend."
+                        "experiment_scheduler.time.sleep"
+                    ),
+                ):
+                    self.assertEqual(
+                        ExperimentSchedulerService._read_ready_process(attempt_dir, "attempt-a1"),
+                        {},
+                    )
 
             invalid_payloads = [
                 ({**json.loads(payload), "attempt_id": "other"}, command),
@@ -3851,6 +3918,8 @@ class ExperimentSchedulerTest(unittest.TestCase):
             return_value="ps:stable-start",
         ):
             self.assertTrue(protected_pids._entry_process_identity_matches(entry))
+        with patch.object(protected_pids, "_pid_start_time", return_value=None):
+            self.assertFalse(protected_pids._entry_process_identity_matches(entry))
 
     def test_run_owned_endpoint_prevents_peer_from_downgrading_to_legacy(self) -> None:
         with tempfile.TemporaryDirectory() as td:

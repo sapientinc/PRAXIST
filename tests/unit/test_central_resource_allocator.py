@@ -257,8 +257,17 @@ class ResourceAllocatorTest(unittest.TestCase):
                     {"record_type": "allocation", "pid": 123, "pgid": 0}
                 )
             )
-        with patch.object(Path, "read_text", side_effect=OSError("gone")):
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("gone")),
+            patch("praxist.cli.registry.process_start_token", return_value=""),
+        ):
             self.assertIsNone(resource_scheduler._pid_start_time(999999))
+
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("no procfs")),
+            patch("praxist.cli.registry.process_start_token", return_value="ps:stable-start"),
+        ):
+            self.assertEqual(resource_scheduler._pid_start_time(4321), "ps:stable-start")
 
     def test_legacy_config_and_driver_failures_fall_back_without_crashing(self) -> None:
         legacy = SchedulerSettings.from_dict(
