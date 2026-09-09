@@ -283,7 +283,7 @@ class ProviderDefaultModelTest(unittest.TestCase):
             "model_provider:deepseek_alias": "deepseek-v4-pro[1m]",
             "model_provider:groq_alias": "llama-3.3-70b-versatile",
             "model_provider:mistral_alias": "mistral-large-latest",
-            "model_provider:xai_alias": "grok-2-latest",
+            "model_provider:xai_alias": "grok-4.6",
         }
         for ref, expected in cases.items():
             with self.subTest(provider=ref):

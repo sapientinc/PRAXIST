@@ -14,12 +14,12 @@ capabilities:
   - provider.xai
 provider:
   api_format: openai_compatible
-  default_model: grok-2-latest
+  default_model: grok-4.6
   cache_strategy: provider_default
   usage_reporting: usage_or_usage_unknown
   model_profiles:
-    cheap_peer: grok-2-mini
-    strong_reasoner: grok-2-latest
+    cheap_peer: grok-4.20-0309-non-reasoning
+    strong_reasoner: grok-4.6
   compatible_model_patterns:
     - "grok*"
 entrypoint: adapter:create_provider
