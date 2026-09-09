@@ -13,18 +13,23 @@ capabilities:
   - provider.openai_compatible
   - provider.groq
 provider:
-  api_format: openai_compatible
-  default_model: llama-3.3-70b-versatile
+  api_format: groq
+  default_model: openai/gpt-oss-20b
   cache_strategy: provider_default
   usage_reporting: usage_or_usage_unknown
   model_profiles:
-    cheap_peer: llama-3.1-8b-instant
-    strong_reasoner: llama-3.3-70b-versatile
+    cheap_peer: openai/gpt-oss-20b
+    strong_reasoner: openai/gpt-oss-120b
   compatible_model_patterns:
+    - "openai/*"
+    - "qwen/*"
+    - "meta-llama/*"
+    - "groq/*"
+    - "groq*"
+    - "allam-*"
     - "llama*"
     - "mixtral*"
     - "gemma*"
-    - "groq*"
 entrypoint: adapter:create_provider
 code:
   - adapter.py

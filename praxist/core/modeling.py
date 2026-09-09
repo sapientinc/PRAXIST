@@ -66,9 +66,17 @@ def _normalize_model_for_api_format(model: str, api_format: str) -> str:
 
     ``cloudflare_workers_ai`` keeps the whole name: Workers AI model ids are
     full ``@cf/vendor/model`` paths, so splitting on the first ``/`` would
-    corrupt them. OpenRouter and OrcaRouter likewise retain ``vendor/model``.
+    corrupt them. ``groq`` is the same case -- Groq publishes ids such as
+    ``openai/gpt-oss-20b`` and ``groq/compound``, and the vendor segment is
+    part of the id rather than an aggregator prefix. OpenRouter and OrcaRouter
+    likewise retain ``vendor/model``.
     """
-    if not model or api_format in {"openrouter", "orcarouter", CLOUDFLARE_API_FORMAT}:
+    if not model or api_format in {
+        "openrouter",
+        "orcarouter",
+        "groq",
+        CLOUDFLARE_API_FORMAT,
+    }:
         return model
     if "/" in model:
         return model.split("/", 1)[1]
