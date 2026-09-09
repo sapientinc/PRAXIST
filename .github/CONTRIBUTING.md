@@ -44,6 +44,19 @@ Before making a substantial change, please consult:
 Keep changes focused, avoid task-specific assumptions in shared code, and update
 tests and documentation at the affected boundary.
 
+## Good First Contributions
+
+For a first contribution, prefer one independently verifiable boundary:
+
+- fix a documentation link or wording while preserving its authoritative source;
+- add focused tests for an existing contract or generic plugin;
+- improve generated-reference consistency checks; or
+- graduate one small file from the Pyrefly exclusions.
+
+Changes listed under [Changes That Need Extra Care](#changes-that-need-extra-care)
+are also welcome. Open an issue or draft pull request first so maintainers can
+help define a safe scope before implementation.
+
 ## What Happens After Submission
 
 1. **Review.** Maintainers examine each open issue and pull request for
