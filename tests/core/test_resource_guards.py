@@ -137,6 +137,39 @@ class Step16ResourceGuardMigrationTest(unittest.TestCase):
             ):
                 ledger.get_exhausted_units("grant-malformed")
 
+    def test_exhaustion_probe_ignores_informational_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_informational_grant"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"tokens": 1000.0, "cost_usd": 1.0},
+            )
+            ledger = BudgetLedger(run_dir, run_dir.name)
+            ledger.append_usage(
+                request_id=request_id,
+                grant_id=grant_id,
+                actor_ref="resource_guard:test",
+                stage_id="research_loop",
+                action_type="eval_runner",
+                actual_usage={"tokens": 10.0, "cost_usd": 1.0},
+                reason="informational_units_do_not_exhaust",
+            )
+
+            # cost_usd has reached its granted amount but must not gate execution
+            self.assertEqual(ledger.get_exhausted_units(grant_id), [])
+
+            ledger.append_usage(
+                request_id=request_id,
+                grant_id=grant_id,
+                actor_ref="resource_guard:test",
+                stage_id="research_loop",
+                action_type="eval_runner",
+                actual_usage={"tokens": 990.0},
+                reason="enforced_unit_still_exhausts",
+            )
+            self.assertEqual(ledger.get_exhausted_units(grant_id), ["tokens"])
+
     def test_budgeted_action_allows_informational_cost_metrics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run_cost"

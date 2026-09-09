@@ -222,6 +222,8 @@ class BudgetLedger:
         totals = self._usage_totals_by_grant().get(grant_id, {})
         exhausted_units = []
         for unit, raw_amount in approved.items():
+            if unit in INFORMATIONAL_USAGE_UNITS:
+                continue  # recorded for reporting; never gates execution
             try:
                 allowed = float(raw_amount)
                 used = float(totals.get(unit, 0.0))
