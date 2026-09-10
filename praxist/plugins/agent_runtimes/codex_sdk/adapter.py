@@ -68,7 +68,6 @@ _SUBSCRIPTION_RUNTIME_OVERRIDES = (
     "features.plugin_sharing=false",
     "features.plugins=false",
     "features.remote_plugin=false",
-    "features.shell_snapshot=false",
     "features.skill_mcp_dependency_install=false",
     "features.workspace_dependencies=false",
     "mcp_servers={}",
@@ -78,6 +77,11 @@ _SUBSCRIPTION_RUNTIME_OVERRIDES = (
     "skills.bundled=[]",
     "skills.include_instructions=false",
 )
+
+# Flags that must always be applied regardless of subscription state. Keep
+# minimal and safety-focused here so they cannot be opted out by subscription
+# specific overrides.
+_ALWAYS_ON_SAFETY_OVERRIDES = ("features.shell_snapshot=false",)
 
 _SAFE_PROCESS_ENV_KEYS = frozenset(
     {
@@ -448,7 +452,7 @@ class CodexSdkRuntime:
             relay: RelayHandle | None = None
             staged_chatgpt_home: StagedChatgptHome | None = None
             provider_id = "openai"
-            config_overrides: tuple[str, ...] = ()
+            config_overrides: tuple[str, ...] = _ALWAYS_ON_SAFETY_OVERRIDES
             subscription = _uses_chatgpt_subscription(request, context.env)
             client: Any | None = None
             try:
@@ -488,6 +492,7 @@ class CodexSdkRuntime:
                     log_dir = state_dir / "logs"
                     log_dir.mkdir(parents=True, exist_ok=True)
                     config_overrides = (
+                        *_ALWAYS_ON_SAFETY_OVERRIDES,
                         f"sqlite_home={json.dumps(str(sqlite_home))}",
                         f"log_dir={json.dumps(str(log_dir))}",
                         "cli_auth_credentials_store="
@@ -818,6 +823,7 @@ def available_chatgpt_models() -> tuple[str, ...]:
                         "cli_auth_credentials_store=" + json.dumps(staged.credential_store),
                         f"sqlite_home={json.dumps(state_dir)}",
                         f"log_dir={json.dumps(state_dir)}",
+                        *_ALWAYS_ON_SAFETY_OVERRIDES,
                         *_SUBSCRIPTION_RUNTIME_OVERRIDES,
                     ),
                     env=_client_process_env("openai", os.environ, staged.path, subscription=True),

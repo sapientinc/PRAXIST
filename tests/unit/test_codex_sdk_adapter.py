@@ -1141,6 +1141,7 @@ class RuntimeExecutionTest(unittest.IsolatedAsyncioTestCase):
         config = harness.configs[0].kwargs
         overrides = config["config_overrides"]
         self.assertIn('model_provider="praxist_relay"', overrides)
+        self.assertIn("features.shell_snapshot=false", overrides)
         self.assertTrue(any(relay.base_url in value for value in overrides))
         self.assertEqual(config["env"]["DEEPSEEK_API_KEY"], "deepseek-test-key")
         self.assertEqual(config["env"]["OPENAI_API_KEY"], "deepseek-test-key")
