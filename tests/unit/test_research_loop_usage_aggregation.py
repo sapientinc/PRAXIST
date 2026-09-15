@@ -20,6 +20,7 @@ from praxist.plugins.workflow_stages.research_loop.backend import agent
 def _result(
     *,
     usage: dict[str, float],
+    cost: dict[str, float] | None = None,
     success: bool = True,
     error: str | None = None,
 ) -> runtime_core.AgentRunResult:
@@ -32,6 +33,7 @@ def _result(
         failover_reason=None,
         credential_ref=None,
         usage=usage,
+        cost=dict(cost or {}),
     )
 
 
@@ -86,13 +88,18 @@ class ResearchLoopUsageAggregationTest(unittest.TestCase):
             {"total_tokens": 3.0},
             {"input_tokens": 7.0, "output_tokens": 1.0},
         ]
+        per_call_cost = [0.01, 0.02, 0.03, 0.04]
         observed_agent_usage: list[dict[str, float] | None] = []
 
         class FakeRuntime:
             async def execute(
                 self, _request: object, _context: object
             ) -> runtime_core.AgentRunResult:
-                return _result(usage=dict(per_call_usage[len(observed_agent_usage)]))
+                index = len(observed_agent_usage)
+                return _result(
+                    usage=dict(per_call_usage[index]),
+                    cost={"cost_usd": per_call_cost[index]},
+                )
 
         class FakeGenerationLoop:
             def __init__(self, **kwargs: object) -> None:
@@ -131,11 +138,16 @@ class ResearchLoopUsageAggregationTest(unittest.TestCase):
                 "input_tokens": 22.0,
                 "output_tokens": 8.0,
                 "total_tokens": 33.0,
+                "cost_usd": 0.1,
             },
         )
         self.assertEqual(stage_result.summary["total_tokens"], 33.0)
         actual_usage = _Ledger.instances[0].usage_records[0]["actual_usage"]
         self.assertEqual(actual_usage["tokens"], 33.0)
+        self.assertEqual(actual_usage["cost_usd"], 0.1)
+        self.assertNotIn("input_tokens", actual_usage)
+        self.assertNotIn("output_tokens", actual_usage)
+        self.assertNotIn("total_tokens", actual_usage)
         self.assertIn("wall_clock_seconds", actual_usage)
         self.assertEqual(_Ledger.instances[0].unknown_records, [])
 

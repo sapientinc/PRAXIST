@@ -103,16 +103,19 @@ class ModelProviderAdapter:
                 model=str(raw_redacted.get("model", "")),
                 text=None,
                 usage={},
+                cost={},
                 error=str(raw_redacted.get("error")),
                 failover_reason=self.classify_error(raw_redacted),
             )
         usage = raw_redacted.get("usage")
+        cost = raw_redacted.get("cost")
         return ModelResult(
             success=True,
             provider_ref=self.provider_ref,
             model=str(raw_redacted.get("model", "")),
             text=str(raw_redacted.get("text", "")),
             usage={str(key): float(value) for key, value in dict(usage or {}).items()},
+            cost={str(key): float(value) for key, value in dict(cost or {}).items()},
             error=None,
             failover_reason="none",
         )

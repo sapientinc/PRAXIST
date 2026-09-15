@@ -68,6 +68,7 @@ class ModelResult:
     usage: dict[str, float]
     error: str | None
     failover_reason: str | None
+    cost: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -264,6 +265,7 @@ class AgentRunResult:
     terminal_status: str | None = None
     timed_out: bool = False
     cancelled: bool = False
+    cost: dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -275,6 +277,7 @@ class AgentRunResult:
             "failover_reason": self.failover_reason,
             "credential_ref": self.credential_ref.to_dict() if self.credential_ref else None,
             "usage": self.usage,
+            "cost": self.cost,
             "terminal_status": self.terminal_status,
             "timed_out": self.timed_out,
             "cancelled": self.cancelled,
