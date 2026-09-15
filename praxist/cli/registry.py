@@ -374,7 +374,7 @@ def process_start_token(pid: int) -> str:
     ticks since boot. Other POSIX hosts fall back to the process start timestamp
     reported by ``ps`` so lifecycle commands remain usable without ``/proc``.
     """
-    if pid <= 0:
+    if not isinstance(pid, int) or pid <= 0:
         return ""
     try:
         raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
@@ -390,7 +390,7 @@ def process_start_token(pid: int) -> str:
     if not ps:
         return ""
     try:
-        result = subprocess.run(
+        completed = subprocess.run(
             [ps, "-p", str(pid), "-o", "lstart="],
             check=False,
             capture_output=True,
@@ -398,11 +398,12 @@ def process_start_token(pid: int) -> str:
             timeout=2,
             env={"LANG": "C", "LC_ALL": "C"},
         )
-    except (OSError, subprocess.TimeoutExpired):
+        if completed.returncode == 0 and completed.stdout:
+            started = " ".join(completed.stdout.split())
+            if started and started != "-":
+                return f"ps:{started}"
+    except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
         return ""
-    started = " ".join(result.stdout.split())
-    if result.returncode == 0 and started and started != "-":
-        return f"ps:{started}"
     return ""
 
 

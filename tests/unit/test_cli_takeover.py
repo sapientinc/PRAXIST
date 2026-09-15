@@ -129,7 +129,7 @@ class TakeoverCliTest(unittest.TestCase):
 
     def test_explicit_configured_provider_launches_without_shell(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            root = Path(raw)
+            root = Path(raw).resolve()
             completed = subprocess.CompletedProcess([], 0)
             with (
                 patch("praxist.cli.takeover.shutil.which", return_value="/usr/bin/codex"),
@@ -153,7 +153,7 @@ class TakeoverCliTest(unittest.TestCase):
 
     def test_explicit_claude_operator_uses_claude_skill_syntax(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
-            root = Path(raw)
+            root = Path(raw).resolve()
             completed = subprocess.CompletedProcess([], 0)
             with (
                 patch("praxist.cli.takeover.shutil.which", return_value="/usr/bin/claude"),
