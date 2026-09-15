@@ -146,7 +146,6 @@ project-excludes = [
     "templates",
     "praxist/core/modeling.py",
     "praxist/core/replay.py",
-    "praxist/core/role_skills.py",
     "praxist/core/tool_servers.py",
     "praxist/core/trajectory.py",
     "praxist/deliver.py",
