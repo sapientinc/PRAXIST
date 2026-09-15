@@ -109,7 +109,7 @@ class PyprojectPackagingContracts(unittest.TestCase):
 
     def test_fake_workflow_uses_packaged_fixture_plugins_when_available(self) -> None:
         with TemporaryDirectory(prefix="praxist_packaged_fixtures_") as tmp_raw:
-            package_root = Path(tmp_raw) / "site-packages" / "praxist"
+            package_root = Path(tmp_raw).resolve() / "site-packages" / "praxist"
             module_path = package_root / "testing" / "fake_workflow_fixture.py"
             fixture_root = package_root / "testing" / "fixtures" / "plugins"
             fixture_root.mkdir(parents=True)

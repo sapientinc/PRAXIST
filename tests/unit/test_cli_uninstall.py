@@ -72,7 +72,7 @@ class PraxistUninstallTest(unittest.TestCase):
 
     def test_default_skill_targets_include_each_managed_agent_host(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_raw:
-            root = Path(tmp_raw)
+            root = Path(tmp_raw).resolve()
             codex = root / "codex"
             claude = root / "claude"
             for target in (codex, claude):

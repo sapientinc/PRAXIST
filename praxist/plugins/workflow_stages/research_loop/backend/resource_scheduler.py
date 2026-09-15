@@ -807,12 +807,14 @@ def _process_group_alive(item: dict[str, Any]) -> bool:
     return False
 
 
-def _pid_start_time(pid: int) -> int | None:
+def _pid_start_time(pid: int) -> int | str | None:
     try:
         suffix = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1]
         return int(suffix.split()[19])
     except (OSError, ValueError, IndexError):
-        return None
+        from praxist.cli.registry import process_start_token
+
+        return process_start_token(pid) or None
 
 
 def _resource_owner_group(run_id: str) -> set[str]:

@@ -81,6 +81,128 @@ class Step16ResourceGuardMigrationTest(unittest.TestCase):
             unknown = [record for record in records if record["kind"] == "usage_unknown"][-1]
             self.assertEqual(unknown["unknown_units"], ["gpu_hours"])
 
+    def test_budgeted_action_guard_blocks_exhausted_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_guard_block"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"wall_clock_seconds": 10.0},
+            )
+
+            guard1 = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            guard1.start()
+            guard1.finish(
+                actual_usage={"wall_clock_seconds": 15.0},
+                expected_units=("wall_clock_seconds",),
+                reason="test_eval_runner_usage",
+            )
+
+            guard2 = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            with self.assertRaises(ResourceBudgetError) as ctx:
+                guard2.start()
+            self.assertIn("Budget exhausted for units: wall_clock_seconds", str(ctx.exception))
+
+    def test_exhaustion_probe_rejects_malformed_grant_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_malformed_grant"
+            run_dir.mkdir()
+            ledger = BudgetLedger(run_dir, run_dir.name)
+
+            with (
+                patch.object(
+                    ledger,
+                    "require_active_grant",
+                    return_value={"granted_budget": ["tokens"]},
+                ),
+                self.assertRaisesRegex(ValueError, "invalid approved budget"),
+            ):
+                ledger.get_exhausted_units("grant-malformed")
+
+    def test_exhaustion_probe_ignores_informational_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_informational_grant"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"tokens": 1000.0, "cost_usd": 1.0},
+            )
+            ledger = BudgetLedger(run_dir, run_dir.name)
+            ledger.append_usage(
+                request_id=request_id,
+                grant_id=grant_id,
+                actor_ref="resource_guard:test",
+                stage_id="research_loop",
+                action_type="eval_runner",
+                actual_usage={"tokens": 10.0, "cost_usd": 1.0},
+                reason="informational_units_do_not_exhaust",
+            )
+
+            # cost_usd has reached its granted amount but must not gate execution
+            self.assertEqual(ledger.get_exhausted_units(grant_id), [])
+
+            ledger.append_usage(
+                request_id=request_id,
+                grant_id=grant_id,
+                actor_ref="resource_guard:test",
+                stage_id="research_loop",
+                action_type="eval_runner",
+                actual_usage={"tokens": 990.0},
+                reason="enforced_unit_still_exhausts",
+            )
+            self.assertEqual(ledger.get_exhausted_units(grant_id), ["tokens"])
+
+    def test_budgeted_action_allows_informational_cost_metrics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp) / "run_cost"
+            run_dir.mkdir()
+            grant_id, request_id = _write_budget_grant(
+                run_dir,
+                {"tokens": 1000.0},
+            )
+
+            guard = BudgetedActionGuard(
+                run_dir=run_dir,
+                run_id=run_dir.name,
+                stage_id="research_loop",
+                actor_ref="resource_guard:test",
+                action_type="eval_runner",
+                budget_grant_id=grant_id,
+                request_id=request_id,
+                require_budget_grant=True,
+            )
+            guard.start()
+            report = guard.finish(
+                actual_usage={"tokens": 500.0, "cost_usd": 0.05, "neurons": 200.0},
+                expected_units=("tokens", "cost_usd", "neurons"),
+                reason="test_cost_usage",
+            )
+
+            self.assertTrue(report.recorded)
+            records = BudgetLedger(run_dir, run_dir.name).records()
+            usage = [record for record in records if record["kind"] == "usage"][-1]
+            self.assertEqual(usage["actual_usage"]["tokens"], 500.0)
+            self.assertEqual(usage["actual_usage"]["cost_usd"], 0.05)
+            self.assertEqual(usage["actual_usage"]["neurons"], 200.0)
+
     def test_wait_for_file_records_tool_wall_clock_usage_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "run_wait"

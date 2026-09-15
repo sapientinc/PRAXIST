@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from praxist.core.budget import ALLOWED_BUDGET_UNITS
+from praxist.core.budget import ALLOWED_BUDGET_UNITS, INFORMATIONAL_USAGE_UNITS
 from praxist.core.protocol import BudgetDecision, BudgetRequest
 from praxist.core.storage import append_jsonl, read_jsonl, utc_now
 
@@ -213,6 +213,26 @@ class BudgetLedger:
             raise ValueError(f"Budget grant not found: {grant_id}")
         return grants[grant_id]
 
+    def get_exhausted_units(self, grant_id: str) -> list[str]:
+        grant = self.require_active_grant(grant_id)
+        approved = grant.get("granted_budget") or {}
+        if not isinstance(approved, dict):
+            raise ValueError(f"Budget grant has invalid approved budget: {grant_id}")
+
+        totals = self._usage_totals_by_grant().get(grant_id, {})
+        exhausted_units = []
+        for unit, raw_amount in approved.items():
+            if unit in INFORMATIONAL_USAGE_UNITS:
+                continue  # recorded for reporting; never gates execution
+            try:
+                allowed = float(raw_amount)
+                used = float(totals.get(unit, 0.0))
+                if used >= allowed and allowed > 0:
+                    exhausted_units.append(str(unit))
+            except (TypeError, ValueError):
+                continue
+        return exhausted_units
+
     def _require_usage_within_grant(
         self, grant_id: str, actual_usage: dict[str, float]
     ) -> list[dict[str, Any]]:
@@ -230,6 +250,8 @@ class BudgetLedger:
                     f"Budget usage must be finite and non-negative for {unit}: {raw_amount}"
                 )
             if unit not in approved:
+                if unit in INFORMATIONAL_USAGE_UNITS:
+                    continue
                 raise ValueError(f"Budget usage unit not approved by grant {grant_id}: {unit}")
             approved_amount = float(approved[unit])
             new_total = float(totals.get(unit, 0.0)) + amount

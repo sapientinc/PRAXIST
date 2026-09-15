@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from praxist.core.budget import INFORMATIONAL_USAGE_UNITS
 from praxist.core.cloudflare import (
     CLOUDFLARE_KEY_VAR,
     CLOUDFLARE_PROVIDER_REF,
@@ -310,8 +311,11 @@ def _usage_for_grant(
     result: dict[str, Any] | None = None,
     allow_zero_for_unmeasured: bool = False,
 ) -> dict[str, float]:
+
     approved = grant_record.get("granted_budget") or {}
     usage: dict[str, float] = {}
+
+    # Collect approved units
     if isinstance(approved, dict):
         for unit in approved:
             unit_name = str(unit)
@@ -320,6 +324,13 @@ def _usage_for_grant(
                 usage[unit_name] = measured
             elif allow_zero_for_unmeasured:
                 usage[unit_name] = 0.0
+
+    # Keep provider-reported billing units even when the grant did not set a cost ceiling.
+    if isinstance(result, dict) and isinstance(result.get("runtime_usage"), dict):
+        for unit_name, value in result["runtime_usage"].items():
+            if unit_name in INFORMATIONAL_USAGE_UNITS and unit_name not in usage:
+                usage[unit_name] = float(value)
+
     if (
         "wall_clock_seconds" in usage
         or (isinstance(approved, dict) and "wall_clock_seconds" in approved)

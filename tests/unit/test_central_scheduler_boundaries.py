@@ -172,10 +172,35 @@ class LaunchBarrierBoundaryTest(unittest.TestCase):
                     ["experiment_exec", str(ready), str(go), "attempt-2", "task"],
                 ),
                 patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+                patch.object(experiment_exec.shutil, "which", return_value=None),
                 patch.object(os, "execvpe", side_effect=OSError("not executable")),
             ):
                 self.assertEqual(experiment_exec.main(), 75)
             self.assertIsNone(json.loads(ready.read_text(encoding="utf-8"))["pid_start_time"])
+
+    def test_barrier_uses_ps_identity_without_procfs(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["ps"],
+            returncode=0,
+            stdout="Thu Sep  5 10:11:12 2026\n",
+            stderr="",
+        )
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+            patch.object(experiment_exec.shutil, "which", return_value="/usr/bin/ps"),
+            patch.object(experiment_exec.subprocess, "run", return_value=completed),
+        ):
+            observed = experiment_exec._pid_start_time(4321)
+
+        self.assertEqual(observed, "ps:Thu Sep 5 10:11:12 2026")
+
+    def test_barrier_tolerates_ps_identity_probe_failure(self) -> None:
+        with (
+            patch.object(Path, "read_text", side_effect=OSError("proc unavailable")),
+            patch.object(experiment_exec.shutil, "which", return_value="/usr/bin/ps"),
+            patch.object(experiment_exec.subprocess, "run", side_effect=OSError("ps unavailable")),
+        ):
+            self.assertIsNone(experiment_exec._pid_start_time(4321))
 
     def test_barrier_times_out_without_scheduler_commit(self) -> None:
         with (
@@ -518,7 +543,7 @@ class SchedulerClientBoundaryTest(unittest.TestCase):
 
     def test_static_shell_wrappers_use_the_declared_task_interpreter(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             run_cwd = root / "run"
             evaluator = task_root / "evaluations" / "run.py"
@@ -567,7 +592,7 @@ class SchedulerClientBoundaryTest(unittest.TestCase):
 
     def test_static_env_chdir_runs_task_evaluator_from_non_task_cwd(self) -> None:
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
+            root = Path(td).resolve()
             task_root = root / "task"
             run_cwd = root / "run"
             evaluator = task_root / "evaluations" / "v2" / "run.py"

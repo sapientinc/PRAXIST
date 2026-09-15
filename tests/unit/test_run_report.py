@@ -26,6 +26,7 @@ from praxist.plugins.workflow_stages.research_loop.backend.run_report import (
 
 class RunReportTest(unittest.TestCase):
     def _write_fixture(self, root: Path, *, frontier_score: float = 1.2) -> tuple[Path, Path]:
+        root = root.resolve()
         task_dir = root / "task"
         run_dir = task_dir / "experiments" / "run_2026-01-01_report"
         (task_dir / "assets" / "baselines").mkdir(parents=True)
@@ -229,7 +230,7 @@ class RunReportTest(unittest.TestCase):
 
     def test_report_uses_run_docs_when_run_dir_is_outside_task_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
+            root = Path(tmp).resolve()
             task_dir, source_run_dir = self._write_fixture(root)
             run_dir = root / "external_run"
             run_dir.mkdir()
