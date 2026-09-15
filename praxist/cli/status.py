@@ -76,6 +76,7 @@ STATE_FAILED = "failed"
 STATE_INCONSISTENT = "status_inconsistent"
 
 _RUN_DIR_HINT_RE = re.compile(r"--run-dir(?:[=\s]+)(\S+)")
+_PS_ETIME_RE = re.compile(r"^(?:-|\d{1,2}:\d{2}(?::\d{2})?|\d+-\d{1,2}:\d{2}:\d{2})$")
 _LAST_PS_ERROR = ""
 
 
@@ -814,18 +815,28 @@ def _read_ps_table(*, timeout_seconds: float = 10.0) -> dict[int, tuple[int, str
     rows: dict[int, tuple[int, str, str]] = {}
     lines = result.stdout.splitlines()
     for line in lines[1:]:
-        parts = line.strip().split(None, 3)
-        if len(parts) < 4:
+        parts = line.strip().split(None, 2)
+        if len(parts) < 3:
             continue
         try:
             pid = int(parts[0])
             ppid = int(parts[1])
         except ValueError:
             continue
-        etime = parts[2]
-        command = parts[3]
+        etime, command = _split_ps_etime_command(parts[2])
+        if not command:
+            continue
         rows[pid] = (ppid, etime, command)
     return rows
+
+
+def _split_ps_etime_command(remainder: str) -> tuple[str, str]:
+    fields = remainder.strip().split(None, 1)
+    if not fields:
+        return "-", ""
+    if _PS_ETIME_RE.match(fields[0]):
+        return fields[0], fields[1] if len(fields) > 1 else ""
+    return "-", remainder.strip()
 
 
 def _self_ancestor_pids(rows: dict[int, tuple[int, str, str]]) -> set[int]:

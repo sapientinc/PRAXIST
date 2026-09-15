@@ -541,7 +541,8 @@ def ensure_resumable_run_dir(run_dir: Path) -> None:
     missing = [rel for rel in ("run.json", "startup_config.json") if not (run_dir / rel).exists()]
     if missing:
         raise ValueError(
-            f"resume run_dir is missing Praxist startup artifacts: {run_dir} ({', '.join(missing)})"
+            f"resume run_dir is missing Praxist startup artifacts: {run_dir} ({', '.join(missing)}). "
+            "Manual inspection is required to verify or repair run artifacts before resuming."
         )
 
 
@@ -549,9 +550,15 @@ def _read_json_object_for_resume(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"resume artifact is not valid JSON: {path}") from exc
+        raise ValueError(
+            f"resume artifact is not valid JSON: {path}. "
+            "Manual inspection is required to verify or repair run artifacts before resuming."
+        ) from exc
     if not isinstance(value, dict):
-        raise ValueError(f"resume artifact must be a JSON object: {path}")
+        raise ValueError(
+            f"resume artifact must be a JSON object: {path}. "
+            "Manual inspection is required to verify or repair run artifacts before resuming."
+        )
     return value
 
 

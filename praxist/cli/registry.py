@@ -400,7 +400,7 @@ def process_start_token(pid: int) -> str:
         )
         if completed.returncode == 0 and completed.stdout:
             started = " ".join(completed.stdout.split())
-            if started:
+            if started and started != "-":
                 return f"ps:{started}"
     except (OSError, ValueError, TypeError, subprocess.TimeoutExpired):
         return ""
