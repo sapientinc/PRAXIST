@@ -532,7 +532,7 @@ class StopRunTest(_StateDirMixin, unittest.TestCase):
         with patch.object(Path, "read_bytes", return_value=payload):
             self.assertEqual(
                 stop._run_dir_from_process_environment(123),
-                Path("/tmp/exact-run"),
+                Path("/tmp/exact-run").resolve(),
             )
 
     def test_cwd_fallback_is_limited_to_run_owned_peer_workspaces(self) -> None:

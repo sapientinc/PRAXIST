@@ -1363,7 +1363,7 @@ class StartCliEndToEndTest(unittest.TestCase):
         self.assertIn("praxist --monitor --run-id", err)
 
     def test_dispatcher_hint_shell_quotes_explicit_run_dir(self) -> None:
-        run_dir = Path(self.workspace.name) / "run with spaces;printf unsafe"
+        run_dir = Path(self.workspace.name).resolve() / "run with spaces;printf unsafe"
         code, out, err = self._run(
             ["start", "--task-path", str(self.task), "--run-dir", str(run_dir)]
         )
