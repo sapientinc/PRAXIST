@@ -76,7 +76,7 @@ def _run_dir_from_protected_env() -> Path | None:
     override = os.environ.get(ENV_PROTECTED_DIR)
     if not override:
         return None
-    protected_dir = Path(override)
+    protected_dir = Path(override).expanduser().resolve(strict=False)
     return protected_dir.parent if protected_dir.name == "protected_pids" else None
 
 
@@ -271,9 +271,10 @@ def _pid_start_time(pid: int) -> int | str | None:
         suffix = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1]
         return int(suffix.split()[19])
     except (OSError, ValueError, IndexError):
-        from praxist.cli.registry import process_start_token
+        pass
+    from praxist.cli.registry import process_start_token
 
-        return process_start_token(pid) or None
+    return process_start_token(pid) or None
 
 
 def _entry_process_identity_matches(entry: ProtectedEntry) -> bool:
@@ -281,7 +282,8 @@ def _entry_process_identity_matches(entry: ProtectedEntry) -> bool:
 
     if entry.pid_start_time is None:
         return True
-    return _pid_start_time(entry.pid) == entry.pid_start_time
+    current = _pid_start_time(entry.pid)
+    return current is not None and str(current) == str(entry.pid_start_time)
 
 
 def _entry_is_alive(entry: ProtectedEntry) -> bool:

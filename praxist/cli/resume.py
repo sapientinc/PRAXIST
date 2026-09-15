@@ -590,9 +590,15 @@ def _read_json_object(path: Path) -> dict[str, object]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ResumeError(f"could not read resume artifact {path}: {exc}") from exc
+        raise ResumeError(
+            f"could not read resume artifact {path}: {exc}. "
+            "Manual inspection is required to verify or repair run artifacts before resuming."
+        ) from exc
     if not isinstance(payload, dict):
-        raise ResumeError(f"resume artifact must be a JSON object: {path}")
+        raise ResumeError(
+            f"resume artifact must be a JSON object: {path}. "
+            "Manual inspection is required to verify or repair run artifacts before resuming."
+        )
     return payload
 
 

@@ -251,6 +251,26 @@ Use `praxist-control` with the request "resume the latest run" for this preparat
 skill understands interrupted PI and Gems boundaries and avoids destructive
 guessing.
 
+### Supported Resume Boundaries
+
+Praxist supports automated resumption for several lifecycle boundaries:
+
+- **Clean generation boundary**: Resuming after any generation whose boundary marker, frontier promotions, and synthesis agenda were committed. The run advances directly to the next generation.
+- **Interrupted generation boundary**: When a cohort finished and generated valid results, but the boundary marker or agenda creation crashed or was interrupted. Praxist detects the pending boundary, executes the boundary completion (or recovers a pending Gems reset), and then advances.
+- **Interrupted in-flight cohort**: When a cohort execution crashed before completing valid results. Praxist removes transient runtime sentinels and reruns the incomplete cohort from the last committed boundary.
+- **Relocated task directory**: An unchanged task project may be moved to a different path as long as its manifest checksum and descriptor remain identical.
+- **Extended generation limit**: An operator may resume a run that reached its initial generation limit by providing an increased `--generations` limit.
+
+### Unsupported Resume Boundaries and Protected States
+
+To preserve experimental integrity and prevent accidental data corruption, certain irregular states are rejected with actionable operator feedback:
+
+- **Pre-existing run artifacts in non-resume startup**: Starting a run into a directory containing Praxist artifacts without `--resume` or `--resume-from` is rejected, guiding the operator to continue the run with `--resume-from` or choose a fresh directory.
+- **Non-empty directory without Praxist artifacts**: Non-resume startup into an existing non-empty directory containing unrelated files is rejected, instructing the operator to select a fresh directory.
+- **Missing or damaged startup artifacts**: If `run.json` or `startup_config.json` is missing, unreadable, or malformed JSON, Praxist halts with a specific error noting that manual inspection is required to repair or restore the artifacts.
+- **Canonical identity drift**: Resuming with a different agent runtime, model, model provider, or modified task files is blocked to guarantee scientific provenance.
+- **Active or remote execution**: Resuming a run whose process is verified live on the local machine or hosted on another machine is rejected.
+
 ## Agent-Assisted Operation
 
 Codex or Claude Code is the recommended interface when an action requires path selection,

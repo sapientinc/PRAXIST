@@ -184,7 +184,7 @@ def _resolve_stop_signal_path(run_dir: Path, raw_path: str) -> Path | None:
         resolved_candidate.relative_to(resolved_run_root)
     except ValueError:
         return None
-    if _has_symlink_component(run_root, candidate):
+    if _has_symlink_component(resolved_run_root, resolved_candidate):
         return None
     return candidate
 
