@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from praxist.core.cloudflare import (
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER_REF,
+    workers_ai_base_url,
+)
+
 OPENROUTER_CLAUDE_SDK_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_OPENAI_COMPAT_BASE_URL = "https://openrouter.ai/api/v1"
+ORCAROUTER_CLAUDE_SDK_BASE_URL = "https://api.orcarouter.ai"
+ORCAROUTER_OPENAI_COMPAT_BASE_URL = "https://api.orcarouter.ai/v1"
 DEEPSEEK_CLAUDE_SDK_BASE_URL = "https://api.deepseek.com/anthropic"
 DEEPSEEK_CLAUDE_DEFAULT_MODEL = "deepseek-v4-pro[1m]"
 DEEPSEEK_CLAUDE_DEFAULT_HAIKU_MODEL = "deepseek-v4-flash"
@@ -26,6 +34,20 @@ def normalize_openrouter_base_url(base_url: str) -> str:
     return cleaned
 
 
+def normalize_orcarouter_base_url(base_url: str) -> str:
+    """Return the OrcaRouter base URL expected by Claude SDK transports.
+
+    Mirrors :func:`normalize_openrouter_base_url`: OrcaRouter's
+    OpenAI-compatible endpoint includes ``/v1``, but Claude SDK calls must use
+    the parent endpoint or requests become ``/v1/v1/messages``.
+    """
+
+    cleaned = str(base_url).rstrip("/")
+    if cleaned == ORCAROUTER_OPENAI_COMPAT_BASE_URL:
+        return ORCAROUTER_CLAUDE_SDK_BASE_URL
+    return cleaned
+
+
 def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict[str, str | None]:
     """Capture the provider environment surface passed into research-loop runtimes."""
 
@@ -41,9 +63,26 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         "CLAUDE_CODE_SUBAGENT_MODEL": None,
         "CLAUDE_CODE_EFFORT_LEVEL": None,
         "OPENROUTER_API_KEY": None,
+        "ORCAROUTER_API_KEY": None,
         "OPENAI_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
+        CLOUDFLARE_KEY_VAR: None,
+        "CLOUDFLARE_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "MISTRAL_API_KEY": None,
+        "XAI_API_KEY": None,
     }
+    if model_provider_ref == CLOUDFLARE_PROVIDER_REF:
+        # Workers AI is OpenAI-compatible only. The Codex relay reads the
+        # key from OPENAI_API_KEY and the base URL from CLOUDFLARE_BASE_URL,
+        # so both are frozen here and the Anthropic surface stays unset.
+        auth_token = env.get(CLOUDFLARE_KEY_VAR)
+        return {
+            **base,
+            CLOUDFLARE_KEY_VAR: auth_token,
+            "OPENAI_API_KEY": auth_token,
+            "CLOUDFLARE_BASE_URL": workers_ai_base_url(env),
+        }
     if model_provider_ref == "model_provider:openrouter":
         base_url = normalize_openrouter_base_url(
             env.get("ANTHROPIC_BASE_URL")
@@ -57,6 +96,19 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
             "ANTHROPIC_AUTH_TOKEN": auth_token,
             "OPENROUTER_API_KEY": auth_token,
         }
+    if model_provider_ref == "model_provider:orcarouter":
+        base_url = normalize_orcarouter_base_url(
+            env.get("ANTHROPIC_BASE_URL")
+            or env.get("ORCAROUTER_BASE_URL")
+            or ORCAROUTER_CLAUDE_SDK_BASE_URL
+        )
+        auth_token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("ORCAROUTER_API_KEY")
+        return {
+            **base,
+            "ANTHROPIC_BASE_URL": base_url,
+            "ANTHROPIC_AUTH_TOKEN": auth_token,
+            "ORCAROUTER_API_KEY": auth_token,
+        }
     if model_provider_ref == "model_provider:anthropic_messages":
         return {
             **base,
@@ -64,6 +116,12 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         }
     if model_provider_ref == "model_provider:openai_compatible":
         return {**base, "OPENAI_API_KEY": env.get("OPENAI_API_KEY")}
+    if model_provider_ref == "model_provider:groq_alias":
+        return {**base, "GROQ_API_KEY": env.get("GROQ_API_KEY")}
+    if model_provider_ref == "model_provider:mistral_alias":
+        return {**base, "MISTRAL_API_KEY": env.get("MISTRAL_API_KEY")}
+    if model_provider_ref == "model_provider:xai_alias":
+        return {**base, "XAI_API_KEY": env.get("XAI_API_KEY")}
     if model_provider_ref == "model_provider:deepseek_alias":
         auth_token = env.get("DEEPSEEK_API_KEY") or env.get("ANTHROPIC_AUTH_TOKEN")
         return {

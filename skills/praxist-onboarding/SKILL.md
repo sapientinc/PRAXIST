@@ -59,7 +59,7 @@ Check these surfaces:
      reinstalling or copying again.
 
 4. **Environment variables and keys**
-   - Report provider keys by presence only: `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`.
+   - Report provider keys by presence only: `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `ORCAROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MOONSHOT_API_KEY`, `DASHSCOPE_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `GROQ_API_KEY`, `XAI_API_KEY`.
    - Report non-secret Praxist configuration values when relevant: `PRAXIST_AGENT_SYSTEM`, `PRAXIST_LLM_PROVIDER`, `PRAXIST_STATE_DIR`, `PRAXIST_TASK_PROJECT_PATH`, `PRAXIST_MODEL`, `PRAXIST_MODEL_PROVIDER_REF`.
    - Never print raw values for variables containing `KEY`, `TOKEN`, `SECRET`, `PASSWORD`, or `CREDENTIAL`.
    - Only when Codex-native mode is explicitly selected, report saved-auth
@@ -516,8 +516,13 @@ Common provider/key context:
 
 - Anthropic native: `ANTHROPIC_API_KEY`
 - OpenRouter: `OPENROUTER_API_KEY`
+- OrcaRouter: `ORCAROUTER_API_KEY`
+- Cloudflare Workers AI: `CLOUDFLARE_API_KEY` plus `CLOUDFLARE_ACCOUNT_ID`
 - DeepSeek direct: `DEEPSEEK_API_KEY`
 - OpenAI-compatible: `OPENAI_API_KEY`
+- Groq: `GROQ_API_KEY`
+- Mistral: `MISTRAL_API_KEY`
+- xAI: `XAI_API_KEY`
 - Agent system selector: `PRAXIST_AGENT_SYSTEM` or `--agent-system`
 - Provider selector: `PRAXIST_LLM_PROVIDER` or `--model-provider`
 - Config profile: command-local `--config-file`, then

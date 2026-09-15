@@ -252,6 +252,9 @@ provider_key_var() {
     openrouter)
       printf '%s\n' "OPENROUTER_API_KEY"
       ;;
+    orcarouter)
+      printf '%s\n' "ORCAROUTER_API_KEY"
+      ;;
     deepseek|deepseek_alias)
       printf '%s\n' "DEEPSEEK_API_KEY"
       ;;

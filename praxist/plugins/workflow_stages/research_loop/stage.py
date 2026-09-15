@@ -11,6 +11,11 @@ from pathlib import Path
 from typing import Any
 
 from praxist.core.budget import INFORMATIONAL_USAGE_UNITS
+from praxist.core.cloudflare import (
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER_REF,
+    workers_ai_base_url,
+)
 from praxist.core.ledgers import BudgetLedger
 from praxist.core.role_skills import RoleSkill, load_role_skill
 from praxist.core.runtimes import close_runtime_for_ref, collect_runtime_usage
@@ -24,7 +29,9 @@ from praxist.plugins.workflow_stages.research_loop.provider_env import (
     DEEPSEEK_CLAUDE_DEFAULT_MODEL,
     DEEPSEEK_CLAUDE_SDK_BASE_URL,
     OPENROUTER_CLAUDE_SDK_BASE_URL,
+    ORCAROUTER_CLAUDE_SDK_BASE_URL,
     normalize_openrouter_base_url,
+    normalize_orcarouter_base_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -478,8 +485,14 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
         "ANTHROPIC_BASE_URL": None,
         "ANTHROPIC_AUTH_TOKEN": None,
         "OPENROUTER_API_KEY": None,
+        "ORCAROUTER_API_KEY": None,
         "OPENAI_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
+        CLOUDFLARE_KEY_VAR: None,
+        "CLOUDFLARE_BASE_URL": None,
+        "GROQ_API_KEY": None,
+        "MISTRAL_API_KEY": None,
+        "XAI_API_KEY": None,
         "ANTHROPIC_MODEL": None,
         "ANTHROPIC_DEFAULT_OPUS_MODEL": None,
         "ANTHROPIC_DEFAULT_SONNET_MODEL": None,
@@ -487,6 +500,15 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
         "CLAUDE_CODE_SUBAGENT_MODEL": None,
         "CLAUDE_CODE_EFFORT_LEVEL": None,
     }
+    if model_provider_ref == CLOUDFLARE_PROVIDER_REF:
+        # Workers AI is OpenAI-compatible only; see provider_env.freeze_provider_env.
+        auth_token = os.environ.get(CLOUDFLARE_KEY_VAR)
+        return {
+            **base,
+            CLOUDFLARE_KEY_VAR: auth_token,
+            "OPENAI_API_KEY": auth_token,
+            "CLOUDFLARE_BASE_URL": workers_ai_base_url(os.environ),
+        }
     if model_provider_ref == "model_provider:openrouter":
         auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("OPENROUTER_API_KEY")
         base_url = normalize_openrouter_base_url(
@@ -505,6 +527,24 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
             updates["ANTHROPIC_AUTH_TOKEN"] = None
             updates["OPENROUTER_API_KEY"] = None
         return updates
+    if model_provider_ref == "model_provider:orcarouter":
+        auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ORCAROUTER_API_KEY")
+        base_url = normalize_orcarouter_base_url(
+            os.environ.get("ANTHROPIC_BASE_URL")
+            or os.environ.get("ORCAROUTER_BASE_URL")
+            or ORCAROUTER_CLAUDE_SDK_BASE_URL
+        )
+        updates: dict[str, str | None] = {
+            **base,
+            "ANTHROPIC_BASE_URL": base_url,
+        }
+        if auth_token:
+            updates["ANTHROPIC_AUTH_TOKEN"] = auth_token
+            updates["ORCAROUTER_API_KEY"] = auth_token
+        else:
+            updates["ANTHROPIC_AUTH_TOKEN"] = None
+            updates["ORCAROUTER_API_KEY"] = None
+        return updates
     if model_provider_ref == "model_provider:anthropic_messages":
         return {
             **base,
@@ -512,6 +552,12 @@ def _provider_env(model_provider_ref: str) -> dict[str, str | None]:
         }
     if model_provider_ref == "model_provider:openai_compatible":
         return {**base, "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY")}
+    if model_provider_ref == "model_provider:groq_alias":
+        return {**base, "GROQ_API_KEY": os.environ.get("GROQ_API_KEY")}
+    if model_provider_ref == "model_provider:mistral_alias":
+        return {**base, "MISTRAL_API_KEY": os.environ.get("MISTRAL_API_KEY")}
+    if model_provider_ref == "model_provider:xai_alias":
+        return {**base, "XAI_API_KEY": os.environ.get("XAI_API_KEY")}
     if model_provider_ref == "model_provider:deepseek_alias":
         auth_token = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
         return {

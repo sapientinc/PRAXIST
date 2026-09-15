@@ -215,8 +215,10 @@ Provider names map to these env vars:
 |---|---|
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `openrouter` | `OPENROUTER_API_KEY` |
+| `orcarouter` | `ORCAROUTER_API_KEY` |
 | `deepseek` | `DEEPSEEK_API_KEY` |
 | `openai` | `OPENAI_API_KEY` |
+| `cloudflare` | `CLOUDFLARE_API_KEY` (also requires `CLOUDFLARE_ACCOUNT_ID`) |
 | `moonshot` / `kimi` | `MOONSHOT_API_KEY` |
 | `qwen` | `DASHSCOPE_API_KEY` |
 | `google` | `GOOGLE_API_KEY` |

@@ -268,7 +268,7 @@ Pip-first Praxist host setup. Run this after installing the package and runtime 
 usage: praxist setup [-h] [--agent-system {claude_sdk,codex_sdk}] [--provider PROVIDER]
                      [--model MODEL] [--api-key-stdin | --api-key-env API_KEY_ENV | --no-api-key]
                      [--interactive]
-                     [--profile {codex-native,deepseek-api,openrouter-api,anthropic-api}]
+                     [--profile {codex-native,deepseek-api,openrouter-api,orcarouter-api,anthropic-api}]
                      [--list-profiles] [--agent-managed] [--install-skills {codex,claude,none}]
                      [--config-file CONFIG_FILE] [--json] [--dry-run] [--skip-doctor]
 ```
@@ -283,7 +283,7 @@ usage: praxist setup [-h] [--agent-system {claude_sdk,codex_sdk}] [--provider PR
 | `--api-key-env` | no | Read the provider API key from this environment variable. |
 | `--no-api-key` | no | Configure a supported no-key authentication route. |
 | `--interactive` | no | Review the License and User Agreement, choose optional privacy, and select a coherent runtime profile in a local TTY wizard. |
-| `--profile` | no | Apply one complete profile; a missing API key is requested in the local terminal. Choices: `codex-native`, `deepseek-api`, `openrouter-api`, `anthropic-api`. |
+| `--profile` | no | Apply one complete profile; a missing API key is requested in the local terminal. Choices: `codex-native`, `deepseek-api`, `openrouter-api`, `orcarouter-api`, `anthropic-api`. |
 | `--list-profiles` | no | List supported setup profiles as JSON and exit without changes. |
 | `--agent-managed`, `--codex-managed` | no | Report the read-only agent-managed first-use decision state and next required action as JSON. --codex-managed remains a compatibility alias. |
 | `--install-skills` | no | Install bundled skills for an agent host (interactive default: codex). Choices: `codex`, `claude`, `none`. |

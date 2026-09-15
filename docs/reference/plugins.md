@@ -12,11 +12,21 @@ This page documents executable generic plugin boundaries.
 
 ::: praxist.plugins.model_providers.openrouter.adapter
 
+::: praxist.plugins.model_providers.orcarouter.adapter
+
 ::: praxist.plugins.model_providers.anthropic_messages.adapter
 
 ::: praxist.plugins.model_providers.openai_compatible.adapter
 
 ::: praxist.plugins.model_providers.deepseek_alias.adapter
+
+::: praxist.plugins.model_providers.cloudflare.adapter
+
+::: praxist.plugins.model_providers.groq_alias.adapter
+
+::: praxist.plugins.model_providers.mistral_alias.adapter
+
+::: praxist.plugins.model_providers.xai_alias.adapter
 
 ## Workflow Stage
 

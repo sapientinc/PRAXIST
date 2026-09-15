@@ -12,7 +12,8 @@ profile during setup.
 |---|---|---|
 | 1 | **DeepSeek V4 Pro** | Praxist provides a maintained direct API profile. Evaluate it first where the service is available and appropriate for the project. |
 | 2 | **Open-source models through OpenRouter** | Use the OpenRouter profile when routing flexibility matters. Select the exact model explicitly and verify that its route reports useful cache reuse. |
-| 3 | **Operator-managed open-source model endpoints** | Add or select a compatible provider plugin when deployment policy requires a private or self-hosted endpoint. Validate the plugin contract before a long run. |
+| 3 | **Open-source models through OrcaRouter** | Use the OrcaRouter profile when adaptive routing and zero-markup inference matter. The `orcarouter/auto` model picks a live route per request. |
+| 4 | **Operator-managed open-source model endpoints** | Add or select a compatible provider plugin when deployment policy requires a private or self-hosted endpoint. Validate the plugin contract before a long run. |
 
 The order is a practical starting point, not a claim that one model is best for
 every task. Availability, pricing, model behavior, and provider-side caching can

@@ -116,6 +116,7 @@ class LaunchRunTest(unittest.TestCase):
                 "PRAXIST_STATE_DIR": self.state.name,
                 "ANTHROPIC_API_KEY": "test-anthropic-key",
                 "OPENROUTER_API_KEY": "",
+                "ORCAROUTER_API_KEY": "",
                 "OPENAI_API_KEY": "",
                 "DEEPSEEK_API_KEY": "",
                 "PRAXIST_MODEL_PROVIDER_REF": "",
@@ -197,6 +198,29 @@ class LaunchRunTest(unittest.TestCase):
             )
         self.assertEqual(entry.model_provider_ref, start.OPENROUTER_PROVIDER_REF)
         self.assertEqual(entry.model, start.OPENROUTER_DEFAULT_MODEL)
+
+    def test_orcarouter_provider_picked_when_only_orcarouter_key_set(self) -> None:
+        from praxist.cli import start
+
+        task = _make_task_dir(Path(self.workspace.name), name="orcarouter")
+        with patch.dict(
+            os.environ,
+            {"ANTHROPIC_API_KEY": "", "OPENROUTER_API_KEY": "", "ORCAROUTER_API_KEY": "orca-key"},
+            clear=False,
+        ):
+            entry = start.launch_run(
+                task_path=str(task),
+                run_dir=None,
+                model=None,
+                model_provider_ref=None,
+                frontier_strategy="auto",
+                cohort=None,
+                generations=None,
+                server=False,
+                spawn=MagicMock(return_value=_FakeProc()),
+            )
+        self.assertEqual(entry.model_provider_ref, start.ORCAROUTER_PROVIDER_REF)
+        self.assertEqual(entry.model, start.ORCAROUTER_DEFAULT_MODEL)
 
     def test_deepseek_provider_picked_when_only_deepseek_key_set(self) -> None:
         from praxist.cli import start
@@ -909,6 +933,7 @@ class CodexSdkAgentSystemTest(unittest.TestCase):
                 "PRAXIST_STATE_DIR": self.state.name,
                 "ANTHROPIC_API_KEY": "",
                 "OPENROUTER_API_KEY": "",
+                "ORCAROUTER_API_KEY": "",
                 "OPENAI_API_KEY": "sk-openai-test",
                 "DEEPSEEK_API_KEY": "",
                 "PRAXIST_MODEL_PROVIDER_REF": "",
@@ -1204,6 +1229,19 @@ class CodexSdkAgentSystemTest(unittest.TestCase):
             resolved = start._resolve_model(None, "model_provider:custom", "claude_sdk")
         self.assertEqual(resolved, "")
 
+    def test_resolve_model_uses_cloudflare_provider_default(self) -> None:
+        from praxist.cli import _env, start
+
+        with patch.dict(os.environ, {"MODEL": "", "PRAXIST_MODEL": ""}, clear=False):
+            resolved = start._resolve_model(None, start.CLOUDFLARE_PROVIDER_REF, "codex_sdk")
+        self.assertEqual(resolved, start.CLOUDFLARE_DEFAULT_MODEL)
+        self.assertEqual(_env.provider_base_url("groq"), "https://api.groq.com/openai/v1")
+        with patch.dict(os.environ, {"CLOUDFLARE_ACCOUNT_ID": "account-id"}, clear=True):
+            self.assertEqual(
+                _env.provider_base_url(" Cloudflare "),
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
+
     def test_praxist_agent_system_env_var_picks_codex_sdk(self) -> None:
         from praxist.cli import start
 
@@ -1397,6 +1435,7 @@ class StartCliEndToEndTest(unittest.TestCase):
                 "PRAXIST_CONFIG_FILE": str(config_file),
                 "ANTHROPIC_API_KEY": "test-anthropic-key",
                 "OPENROUTER_API_KEY": "",
+                "ORCAROUTER_API_KEY": "",
                 "OPENAI_API_KEY": "",
                 "DEEPSEEK_API_KEY": "",
                 "PRAXIST_MODEL_PROVIDER_REF": "",
@@ -1541,6 +1580,7 @@ class DaemonizeFlagTest(unittest.TestCase):
                 "PRAXIST_STATE_DIR": self.state.name,
                 "ANTHROPIC_API_KEY": "test-anthropic-key",
                 "OPENROUTER_API_KEY": "",
+                "ORCAROUTER_API_KEY": "",
                 "OPENAI_API_KEY": "",
                 "DEEPSEEK_API_KEY": "",
                 "PRAXIST_MODEL_PROVIDER_REF": "",

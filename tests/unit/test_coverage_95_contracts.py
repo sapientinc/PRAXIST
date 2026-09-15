@@ -414,10 +414,16 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             os.environ,
             {
                 "OPENROUTER_API_KEY": "or-key",
+                "ORCAROUTER_API_KEY": "orca-key",
                 "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",
                 "ANTHROPIC_API_KEY": "anthropic-key",
                 "OPENAI_API_KEY": "openai-key",
                 "DEEPSEEK_API_KEY": "deepseek-key",
+                "CLOUDFLARE_API_KEY": "cloudflare-key",
+                "CLOUDFLARE_ACCOUNT_ID": "account-id",
+                "GROQ_API_KEY": "groq-key",
+                "MISTRAL_API_KEY": "mistral-key",
+                "XAI_API_KEY": "xai-key",
             },
             clear=True,
         ):
@@ -430,12 +436,35 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                 "or-key",
             )
             self.assertEqual(
+                stage._provider_env("model_provider:orcarouter")["ORCAROUTER_API_KEY"],
+                "orca-key",
+            )
+            self.assertEqual(
                 stage._provider_env("model_provider:anthropic_messages")["ANTHROPIC_API_KEY"],
                 "anthropic-key",
             )
             self.assertEqual(
                 stage._provider_env("model_provider:openai_compatible")["OPENAI_API_KEY"],
                 "openai-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:groq_alias")["GROQ_API_KEY"],
+                "groq-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:mistral_alias")["MISTRAL_API_KEY"],
+                "mistral-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:xai_alias")["XAI_API_KEY"],
+                "xai-key",
+            )
+            cloudflare_env = stage._provider_env("model_provider:cloudflare")
+            self.assertEqual(cloudflare_env["CLOUDFLARE_API_KEY"], "cloudflare-key")
+            self.assertEqual(cloudflare_env["OPENAI_API_KEY"], "cloudflare-key")
+            self.assertEqual(
+                cloudflare_env["CLOUDFLARE_BASE_URL"],
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
             )
             self.assertEqual(
                 stage._provider_env("model_provider:deepseek_alias")["DEEPSEEK_API_KEY"],
@@ -451,6 +480,11 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             self.assertIsNone(stage._provider_env("model_provider:fake_provider")["OPENAI_API_KEY"])
             with self.assertRaises(ValueError):
                 stage._provider_env("model_provider:unknown")
+
+        with patch.dict(os.environ, {}, clear=True):
+            orcarouter_env = stage._provider_env("model_provider:orcarouter")
+        self.assertIsNone(orcarouter_env["ANTHROPIC_AUTH_TOKEN"])
+        self.assertIsNone(orcarouter_env["ORCAROUTER_API_KEY"])
 
     def test_research_loop_stage_execute_resolve_success_and_unknown_usage(self) -> None:
         from praxist.plugins.workflow_stages.research_loop import stage
@@ -610,6 +644,9 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                 ("model_provider:openrouter", "ANTHROPIC_AUTH_TOKEN"),
                 ("model_provider:anthropic_messages", "ANTHROPIC_API_KEY"),
                 ("model_provider:openai_compatible", "OPENAI_API_KEY"),
+                ("model_provider:groq_alias", "GROQ_API_KEY"),
+                ("model_provider:mistral_alias", "MISTRAL_API_KEY"),
+                ("model_provider:xai_alias", "XAI_API_KEY"),
                 ("model_provider:deepseek_alias", "ANTHROPIC_AUTH_TOKEN"),
                 ("model_provider:fake_provider", None),
             ):
@@ -621,6 +658,9 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
                     "OPENAI_API_KEY": "openai",
                     "DEEPSEEK_API_KEY": "deepseek",
+                    "GROQ_API_KEY": "groq",
+                    "MISTRAL_API_KEY": "mistral",
+                    "XAI_API_KEY": "xai",
                 }
                 with patch.dict(os.environ, env, clear=True):
                     scoped = agent._scoped_legacy_provider_env()
@@ -643,6 +683,22 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
                         self.assertEqual(
                             scoped["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic"
                         )
+
+            with patch.dict(
+                os.environ,
+                {
+                    "PRAXIST_MODEL_PROVIDER_REF": "model_provider:cloudflare",
+                    "CLOUDFLARE_API_KEY": "cloudflare",
+                    "CLOUDFLARE_BASE_URL": "https://gateway.example/v1",
+                    "GROQ_API_KEY": "unrelated",
+                },
+                clear=True,
+            ):
+                scoped = agent._scoped_legacy_provider_env()
+            self.assertEqual(scoped["CLOUDFLARE_API_KEY"], "cloudflare")
+            self.assertEqual(scoped["OPENAI_API_KEY"], "cloudflare")
+            self.assertEqual(scoped["CLOUDFLARE_BASE_URL"], "https://gateway.example/v1")
+            self.assertNotIn("GROQ_API_KEY", scoped)
 
             with patch.dict(
                 os.environ,

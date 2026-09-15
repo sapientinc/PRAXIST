@@ -26,6 +26,12 @@ from praxist.config import (
     S3_RESULTS_PREFIX as _S3_RESULTS_PREFIX_DEFAULT,
 )
 from praxist.core.cache import build_cache_policy
+from praxist.core.cloudflare import (
+    CLOUDFLARE_ACCOUNT_VAR,
+    CLOUDFLARE_BASE_URL_VAR,
+    CLOUDFLARE_KEY_VAR,
+    CLOUDFLARE_PROVIDER_REF,
+)
 from praxist.core.credentials import CredentialRef, provider_name_from_ref
 from praxist.core.modeling import default_model_profile
 from praxist.core.prompt_layout import (
@@ -87,6 +93,7 @@ from praxist.plugins.workflow_stages.research_loop.provider_env import (
     DEEPSEEK_CLAUDE_DEFAULT_MODEL,
     DEEPSEEK_CLAUDE_SDK_BASE_URL,
     normalize_openrouter_base_url,
+    normalize_orcarouter_base_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -121,6 +128,11 @@ _CONTEXT_EFFICIENCY_MODES = frozenset({"auto", "lossless", "off"})
 _CHATGPT_CREDENTIAL_PREFIX = "openai_compatible:codex_sdk:chatgpt:"
 _LOSSLESS_MAX_SHARED_FINDINGS = 48
 _LOSSLESS_MAX_MEMORY_PROMPT_CHARS = 24_000
+_OPENAI_COMPAT_PROVIDER_KEY_VARS = {
+    "model_provider:groq_alias": "GROQ_API_KEY",
+    "model_provider:mistral_alias": "MISTRAL_API_KEY",
+    "model_provider:xai_alias": "XAI_API_KEY",
+}
 _LOSSLESS_CONTINUATION_DIRECTIVE = """# Lossless Continuation Navigation
 
 This is a continuation session. The complete task contract remains above and
@@ -626,10 +638,14 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
     provider_ref = os.environ.get("PRAXIST_MODEL_PROVIDER_REF", "")
     if provider_ref == "model_provider:openrouter":
         allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY")
+    elif provider_ref == "model_provider:orcarouter":
+        allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ORCAROUTER_API_KEY")
     elif provider_ref == "model_provider:anthropic_messages":
         allowed = ("ANTHROPIC_API_KEY",)
     elif provider_ref == "model_provider:openai_compatible":
         allowed = ("OPENAI_API_KEY",)
+    elif provider_ref in _OPENAI_COMPAT_PROVIDER_KEY_VARS:
+        allowed = (_OPENAI_COMPAT_PROVIDER_KEY_VARS[provider_ref],)
     elif provider_ref == "model_provider:deepseek_alias":
         allowed = (
             "ANTHROPIC_BASE_URL",
@@ -641,6 +657,16 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
             "CLAUDE_CODE_SUBAGENT_MODEL",
             "CLAUDE_CODE_EFFORT_LEVEL",
             "DEEPSEEK_API_KEY",
+        )
+    elif provider_ref == CLOUDFLARE_PROVIDER_REF:
+        # Workers AI reaches the Codex runtime through the relay, which reads
+        # the bearer from CLOUDFLARE_API_KEY/OPENAI_API_KEY and interpolates
+        # the account-scoped upstream from CLOUDFLARE_ACCOUNT_ID.
+        allowed = (
+            CLOUDFLARE_KEY_VAR,
+            "OPENAI_API_KEY",
+            CLOUDFLARE_ACCOUNT_VAR,
+            CLOUDFLARE_BASE_URL_VAR,
         )
     elif provider_ref == "model_provider:fake_provider":
         allowed = ()
@@ -674,7 +700,14 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
         if val:
             if provider_ref == "model_provider:openrouter" and var == "ANTHROPIC_BASE_URL":
                 val = normalize_openrouter_base_url(val)
+            if provider_ref == "model_provider:orcarouter" and var == "ANTHROPIC_BASE_URL":
+                val = normalize_orcarouter_base_url(val)
             env[var] = val
+    if provider_ref == CLOUDFLARE_PROVIDER_REF:
+        cloudflare_key = os.environ.get(CLOUDFLARE_KEY_VAR, "")
+        if cloudflare_key:
+            env[CLOUDFLARE_KEY_VAR] = cloudflare_key
+            env["OPENAI_API_KEY"] = cloudflare_key
     if provider_ref == "model_provider:deepseek_alias":
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "")
         if deepseek_key:
@@ -956,7 +989,7 @@ def _lossless_context_efficiency_enabled() -> bool:
         return False
     if mode == "lossless":
         return True
-    if provider_ref == "model_provider:openrouter":
+    if provider_ref in {"model_provider:openrouter", "model_provider:orcarouter"}:
         return True
     return bool(
         os.environ.get("PRAXIST_AGENT_RUNTIME_REF", "").strip() == "agent_runtime:codex_sdk"

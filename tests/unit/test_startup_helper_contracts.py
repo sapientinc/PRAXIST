@@ -75,6 +75,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "deepseek-key",
                     "OPENROUTER_API_KEY": "openrouter-key",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -88,6 +89,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "openrouter-key",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -101,6 +103,21 @@ class StartupHelperContractsTest(unittest.TestCase):
                 {
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "orcarouter-key",
+                    "ANTHROPIC_API_KEY": "anthropic-key",
+                },
+                clear=False,
+            ):
+                self.assertEqual(
+                    startup.default_model_provider_for_task("task:x"),
+                    "model_provider:orcarouter",
+                )
+            with patch.dict(
+                os.environ,
+                {
+                    "DEEPSEEK_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -182,6 +199,22 @@ class StartupHelperContractsTest(unittest.TestCase):
             )
             self.assertEqual(
                 provider_env.freeze_provider_env(
+                    "model_provider:orcarouter",
+                    {
+                        "ORCAROUTER_BASE_URL": "https://api.orcarouter.ai/v1",
+                        "ORCAROUTER_API_KEY": "key",
+                    },
+                )["ANTHROPIC_BASE_URL"],
+                "https://api.orcarouter.ai",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:orcarouter", {"ORCAROUTER_API_KEY": "k"}
+                )["ORCAROUTER_API_KEY"],
+                "k",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
                     "model_provider:anthropic_messages", {"ANTHROPIC_API_KEY": "a"}
                 )["ANTHROPIC_API_KEY"],
                 "a",
@@ -192,6 +225,45 @@ class StartupHelperContractsTest(unittest.TestCase):
                 )["OPENAI_API_KEY"],
                 "o",
             )
+            groq_env = provider_env.freeze_provider_env(
+                "model_provider:groq_alias", {"GROQ_API_KEY": "g"}
+            )
+            self.assertEqual(groq_env["GROQ_API_KEY"], "g")
+            mistral_env = provider_env.freeze_provider_env(
+                "model_provider:mistral_alias", {"MISTRAL_API_KEY": "m"}
+            )
+            self.assertEqual(mistral_env["MISTRAL_API_KEY"], "m")
+            xai_env = provider_env.freeze_provider_env(
+                "model_provider:xai_alias", {"XAI_API_KEY": "x"}
+            )
+            self.assertEqual(xai_env["XAI_API_KEY"], "x")
+            cloudflare_env = provider_env.freeze_provider_env(
+                "model_provider:cloudflare",
+                {
+                    "CLOUDFLARE_API_KEY": "cf",
+                    "CLOUDFLARE_ACCOUNT_ID": "account-id",
+                    "GROQ_API_KEY": "unrelated",
+                },
+            )
+            self.assertEqual(cloudflare_env["CLOUDFLARE_API_KEY"], "cf")
+            self.assertEqual(cloudflare_env["OPENAI_API_KEY"], "cf")
+            self.assertEqual(
+                cloudflare_env["CLOUDFLARE_BASE_URL"],
+                "https://api.cloudflare.com/client/v4/accounts/account-id/ai/v1",
+            )
+            self.assertIsNone(cloudflare_env["GROQ_API_KEY"])
+            override_env = provider_env.freeze_provider_env(
+                "model_provider:cloudflare",
+                {
+                    "CLOUDFLARE_API_KEY": "cf",
+                    "CLOUDFLARE_BASE_URL": "https://gateway.example/v1/",
+                },
+            )
+            self.assertEqual(override_env["CLOUDFLARE_BASE_URL"], "https://gateway.example/v1")
+            with self.assertRaisesRegex(ValueError, "CLOUDFLARE_ACCOUNT_ID"):
+                provider_env.freeze_provider_env(
+                    "model_provider:cloudflare", {"CLOUDFLARE_API_KEY": "cf"}
+                )
             deepseek_env = provider_env.freeze_provider_env(
                 "model_provider:deepseek_alias", {"DEEPSEEK_API_KEY": "d"}
             )

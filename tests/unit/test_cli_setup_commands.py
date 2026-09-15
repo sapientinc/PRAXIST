@@ -240,6 +240,38 @@ class ConfigureLLMTest(CliRunnerMixin, unittest.TestCase):
             self.assertIn("export PRAXIST_MODEL=deepseek/demo", text)
             self.assertIn("export OPENROUTER_API_KEY=sk-project-secret", text)
 
+    def test_configure_llm_supports_openai_compatible_provider_plugins(self) -> None:
+        for short_name, key_name, provider_ref in (
+            ("groq", "GROQ_API_KEY", "model_provider:groq_alias"),
+            ("mistral", "MISTRAL_API_KEY", "model_provider:mistral_alias"),
+            ("xai", "XAI_API_KEY", "model_provider:xai_alias"),
+            ("cloudflare", "CLOUDFLARE_API_KEY", "model_provider:cloudflare"),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                config_file = Path(tmp) / "config" / "env"
+                secret = f"sk-{short_name}-secret"
+                code, out, err = self._run(
+                    [
+                        "configure-llm",
+                        "--provider",
+                        short_name,
+                        "--agent-system",
+                        "codex_sdk",
+                        "--api-key-stdin",
+                        "--config-file",
+                        str(config_file),
+                    ],
+                    stdin=f"{secret}\n",
+                )
+                self.assertEqual(code, 0, msg=out + err)
+                text = config_file.read_text(encoding="utf-8")
+                self.assertIn(f"export PRAXIST_LLM_PROVIDER={short_name}", text)
+                self.assertIn(
+                    f"export PRAXIST_MODEL_PROVIDER_REF={provider_ref}",
+                    text,
+                )
+                self.assertIn(f"export {key_name}={secret}", text)
+
     def test_configure_llm_replaces_stale_canonical_runtime_and_provider_refs(self) -> None:
         from praxist.cli import start
         from praxist.cli._setup_common import load_env_file
@@ -2715,6 +2747,8 @@ class DoctorAndSetupTest(CliRunnerMixin, unittest.TestCase):
         self.assertFalse(profiles["codex-native"]["requires_api_key"])
         self.assertEqual(profiles["deepseek-api"]["agent_system"], "claude_sdk")
         self.assertTrue(profiles["deepseek-api"]["requires_api_key"])
+        self.assertEqual(profiles["orcarouter-api"]["agent_system"], "claude_sdk")
+        self.assertTrue(profiles["orcarouter-api"]["requires_api_key"])
         self.assertEqual(profiles["codex-native"]["authentication"], "saved_chatgpt_login")
 
     def test_codex_managed_status_does_not_treat_defaults_as_a_profile_choice(self) -> None:

@@ -26,6 +26,24 @@ class NormalizeModelForApiFormatTest(unittest.TestCase):
             "anthropic/claude-opus-4.7",
         )
 
+    def test_orcarouter_keeps_vendor_prefix(self) -> None:
+        self.assertEqual(
+            modeling._normalize_model_for_api_format("anthropic/claude-opus-4.7", "orcarouter"),
+            "anthropic/claude-opus-4.7",
+        )
+        self.assertEqual(
+            modeling._normalize_model_for_api_format("orcarouter/auto", "orcarouter"),
+            "orcarouter/auto",
+        )
+
+    def test_cloudflare_keeps_full_model_id(self) -> None:
+        self.assertEqual(
+            modeling._normalize_model_for_api_format(
+                "@cf/deepseek-ai/deepseek-v4-pro-0813", "cloudflare_workers_ai"
+            ),
+            "@cf/deepseek-ai/deepseek-v4-pro-0813",
+        )
+
     def test_openrouter_keeps_bare_name_unchanged(self) -> None:
         # Bare name into openrouter is the operator's responsibility;
         # we never invent a prefix.
@@ -103,6 +121,16 @@ class NormalizeModelForProviderTest(unittest.TestCase):
                 ),
                 "anthropic/claude-opus-4.7",
             )
+
+    def test_groq_api_format_keeps_vendor_prefixed_model_ids(self) -> None:
+        # Groq publishes ids like ``openai/gpt-oss-20b``; the vendor segment is
+        # part of the id, so stripping it would send an unknown model upstream.
+        for model in ("openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound"):
+            with self.subTest(model=model):
+                self.assertEqual(
+                    modeling._normalize_model_for_api_format(model, "groq"),
+                    model,
+                )
 
     def test_normalize_defaults_to_openai_compatible_when_api_format_missing(self) -> None:
         with patch.object(modeling, "_provider_contract", return_value={}):
@@ -261,7 +289,11 @@ class ProviderDefaultModelTest(unittest.TestCase):
             "model_provider:anthropic_messages": "claude-opus-4-7",
             "model_provider:openrouter": "anthropic/claude-opus-4.7",
             "model_provider:openai_compatible": "gpt-5.2",
+            "model_provider:cloudflare": "@cf/deepseek-ai/deepseek-v4-flash-0731",
             "model_provider:deepseek_alias": "deepseek-v4-pro[1m]",
+            "model_provider:groq_alias": "openai/gpt-oss-20b",
+            "model_provider:mistral_alias": "mistral-large-latest",
+            "model_provider:xai_alias": "grok-4.6",
         }
         for ref, expected in cases.items():
             with self.subTest(provider=ref):
