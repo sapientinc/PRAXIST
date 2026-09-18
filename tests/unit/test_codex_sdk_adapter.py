@@ -1143,13 +1143,55 @@ class RuntimeExecutionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('model_provider="praxist_relay"', overrides)
         self.assertIn("features.shell_snapshot=false", overrides)
         self.assertTrue(any(relay.base_url in value for value in overrides))
-        self.assertEqual(config["env"]["DEEPSEEK_API_KEY"], "deepseek-test-key")
-        self.assertEqual(config["env"]["OPENAI_API_KEY"], "deepseek-test-key")
+        # The relay holds the real credential (asserted above); the child process
+        # gets a placeholder so an environment capture has nothing to leak.
+        self.assertEqual(
+            config["env"]["DEEPSEEK_API_KEY"], "praxist-relay-local-no-upstream-credential"
+        )
+        self.assertEqual(
+            config["env"]["OPENAI_API_KEY"], "praxist-relay-local-no-upstream-credential"
+        )
         self.assertTrue(str(config["env"]["CODEX_HOME"]).endswith("/home"))
         self.assertEqual(harness.clients[0].thread_calls[0]["model"], "deepseek-v4-pro")
         self.assertTrue(result.events[-1].payload["relay_used"])
         self.assertEqual(harness.clients[0].close_calls, 1)
         self.assertEqual(relay.close_calls, 1)
+
+    async def test_relay_keeps_provider_key_out_of_child_environment(self) -> None:
+        """No relay-path child env value may contain the provider credential.
+
+        Codex serialises its own environment into ``shell_snapshots/*.sh`` and
+        ``features.shell_snapshot=false`` is not honoured by openai-codex 0.147.0,
+        so the credential must not be in that environment in the first place. The
+        relay still receives it for the upstream hop.
+        """
+
+        secret = "sk-relay-child-env-secret-value"
+        runtime = CodexSdkRuntime()
+        harness = _SdkHarness()
+        relay = _Relay()
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(adapter, "_load_sdk", side_effect=lambda: harness.sdk()),
+            patch.object(adapter, "start_relay", return_value=relay) as start,
+        ):
+            result = await runtime.execute(
+                _request(tmp, provider_ref="model_provider:deepseek_alias"),
+                AgentRuntimeExecutionContext(env={"DEEPSEEK_API_KEY": secret}),
+            )
+            await runtime.aclose()
+
+        self.assertTrue(result.success, result.error)
+        # The relay is the only component that needs the real credential.
+        self.assertEqual(start.call_args.kwargs["api_key"], secret)
+
+        child_env = harness.configs[0].kwargs["env"]
+        leaked = sorted(name for name, value in child_env.items() if secret in str(value))
+        self.assertEqual(leaked, [], f"provider key reached the child env via {leaked}")
+        # Config overrides are rendered into the Codex command line, so they must
+        # not carry it either.
+        overrides = harness.configs[0].kwargs["config_overrides"]
+        self.assertFalse([value for value in overrides if secret in str(value)])
 
     async def test_openrouter_relay_uses_stable_non_secret_run_session_id(self) -> None:
         runtime = CodexSdkRuntime()
