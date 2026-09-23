@@ -44,6 +44,7 @@ from .resource_scheduler import (
     SchedulerSettings,
     _pid_start_time,
     _posix_file_locking,
+    accelerator_profile_capability_error,
 )
 from .tools.atomic_io import atomic_write_json
 
@@ -259,6 +260,11 @@ class ExperimentSchedulerService:
         self._owner_lock_fd: int | None = None
         self._owner_finalize_lock = threading.Lock()
         self._last_snapshot_write = 0.0
+        self._preflight_status: dict[str, Any] = {
+            "state": "not_run",
+            "required_profile": "",
+            "declared_profiles": [],
+        }
         self._supply_idle_samples = 0
         self._supply_sample_at = 0.0
         self._idle_supply_waiters: dict[str, tuple[int, float]] = {}
@@ -277,9 +283,59 @@ class ExperimentSchedulerService:
         }
         self._supply_stats_by_priority: dict[str, dict[str, int]] = {}
 
+    def preflight(self) -> dict[str, Any]:
+        """Validate the task's required profile before publishing the scheduler endpoint.
+
+        The default profile is the task's declared normal evaluator shape. Optional
+        profiles are not treated as implicit GPU-to-CPU fallbacks, so a GPU default
+        must be structurally satisfiable by the current host snapshot. An
+        ``unknown`` accelerator probe remains retryable and is not failed here.
+        """
+
+        if not self.settings.enabled:
+            self._preflight_status = {
+                "state": "disabled",
+                "required_profile": "",
+                "declared_profiles": [],
+            }
+            return dict(self._preflight_status)
+        required_profile = self.settings.profile(None)
+        snapshot = self.allocator.snapshot
+        capability_error = accelerator_profile_capability_error(required_profile, snapshot)
+        declared_profiles = list(self.settings.profiles)
+        if capability_error:
+            probe = {
+                "state": str(snapshot.accelerator_probe_state or "unknown"),
+                "reason": str(snapshot.accelerator_probe_reason or ""),
+            }
+            self._preflight_status = {
+                "state": "failed",
+                "required_profile": required_profile.name,
+                "declared_profiles": declared_profiles,
+                "error": capability_error,
+                "accelerator_probe": probe,
+            }
+            raise RuntimeError(
+                "Central experiment scheduler cannot start: required resource profile "
+                f"{required_profile.name!r} is not satisfiable ({capability_error}); "
+                f"declared profiles: {', '.join(declared_profiles)}; "
+                f"accelerator probe: {probe['state']} ({probe['reason'] or 'no reason reported'})"
+            )
+        self._preflight_status = {
+            "state": "ready",
+            "required_profile": required_profile.name,
+            "declared_profiles": declared_profiles,
+            "accelerator_probe": {
+                "state": str(snapshot.accelerator_probe_state or "unknown"),
+                "reason": str(snapshot.accelerator_probe_reason or ""),
+            },
+        }
+        return dict(self._preflight_status)
+
     def start(self) -> None:
         if not self.settings.enabled:
             return
+        self.preflight()
         self._acquire_owner_lock()
         try:
             set_owner = getattr(self.allocator, "set_owner", None)
@@ -1297,6 +1353,48 @@ class ExperimentSchedulerService:
             self._condition.notify_all()
         self._write_snapshot(force=True)
 
+    def generation_status(self, generation_id: int) -> dict[str, Any]:
+        """Return bounded scheduler counters for one generation."""
+
+        with self._condition:
+            jobs = [job for job in self._jobs.values() if job.generation_id == generation_id]
+            state_counts = {
+                state: sum(job.state == state for job in jobs)
+                for state in (
+                    "queued",
+                    "running",
+                    "completed",
+                    "failed",
+                    "rejected",
+                    "drained_unknown",
+                )
+            }
+            evaluation_jobs = sum(
+                job.state in {"running", "completed", "failed", "drained_unknown"}
+                or job.attempts > 0
+                for job in jobs
+            )
+            return {
+                "generation_id": generation_id,
+                "jobs_total": len(jobs),
+                "evaluation_jobs": evaluation_jobs,
+                **state_counts,
+            }
+
+    def require_generation_evaluation(self, generation_id: int) -> dict[str, Any]:
+        """Fail a generation that never admitted an evaluation-capable job."""
+
+        status = self.generation_status(generation_id)
+        if int(status.get("evaluation_jobs", 0)) <= 0:
+            raise RuntimeError(
+                f"Central experiment scheduler generation {generation_id} completed without "
+                "any evaluation jobs; refusing to advance the run. "
+                f"jobs_total={status.get('jobs_total', 0)}, "
+                f"rejected={status.get('rejected', 0)}, "
+                f"queued={status.get('queued', 0)}"
+            )
+        return status
+
     def status(self) -> dict[str, Any]:
         with self._condition:
             jobs = [job.public() for job in self._jobs.values()]
@@ -1383,6 +1481,7 @@ class ExperimentSchedulerService:
                 },
                 "jobs": retained_jobs,
                 "worker_error": self._worker_error,
+                "preflight": dict(self._preflight_status),
             }
 
     def _supply_status_locked(self) -> dict[str, Any]:
@@ -2283,38 +2382,18 @@ class ExperimentSchedulerService:
         allow_transient: bool,
     ) -> str:
         profile = self._require_profile(job.profile)
+        snapshot = self.allocator.snapshot
+        capability_error = accelerator_profile_capability_error(profile, snapshot)
+        if capability_error:
+            self._accelerator_probe_unknown_since = None
+            return capability_error
         if not profile.needs_gpu:
             return ""
-        snapshot = self.allocator.snapshot
         if snapshot.gpus:
             self._accelerator_probe_unknown_since = None
-            if profile.gpu_count > len(snapshot.gpus):
-                return (
-                    "accelerator_profile_unsatisfied: "
-                    f"profile {profile.name!r} requests {profile.gpu_count} GPUs, "
-                    f"but the host exposes {len(snapshot.gpus)}"
-                )
-            known_capacities = [
-                device.memory_total_mb for device in snapshot.gpus if device.memory_total_mb > 0
-            ]
-            if profile.gpu_memory_gb is not None and len(known_capacities) == len(snapshot.gpus):
-                requested_mb = int(profile.gpu_memory_gb * 1024)
-                capable_devices = sum(
-                    requested_mb <= capacity_mb * 0.95 for capacity_mb in known_capacities
-                )
-                if capable_devices < profile.gpu_count:
-                    return (
-                        "accelerator_profile_unsatisfied: "
-                        f"profile {profile.name!r} requests {profile.gpu_memory_gb:g} GiB "
-                        f"on each of {profile.gpu_count} GPUs, but only "
-                        f"{capable_devices} detected devices can satisfy it"
-                    )
             return ""
-        state = str(snapshot.accelerator_probe_state or "unknown")
+
         reason = str(snapshot.accelerator_probe_reason or "accelerator inventory unavailable")
-        if state in {"unavailable", "unsupported"}:
-            self._accelerator_probe_unknown_since = None
-            return f"accelerator_{state}: {reason}"
         now = time.time()
         if self._accelerator_probe_unknown_since is None:
             self._accelerator_probe_unknown_since = now

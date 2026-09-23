@@ -190,6 +190,138 @@ class ExperimentSchedulerTest(unittest.TestCase):
 
         handler.server.service.handle_request.assert_called_once_with({"action": "ping"})
 
+    def test_preflight_rejects_gpu_default_before_scheduler_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            allocator = _GPUAllocator("", limit=1)
+            allocator.snapshot = HostSnapshot(
+                8,
+                10,
+                10,
+                0,
+                accelerator_probe_state="unavailable",
+                accelerator_probe_reason="nvidia-smi is not installed",
+            )
+            settings = SchedulerSettings.from_dict(
+                {
+                    "mode": "central",
+                    "profiles": {
+                        "gpu": {
+                            "accelerator": "gpu",
+                            "gpu_count": 1,
+                            "gpu_memory_gb": 1,
+                            "gpu_utilization_pct": 20,
+                        }
+                    },
+                    "default_profile": "gpu",
+                }
+            )
+            service = ExperimentSchedulerService(
+                run_dir=Path(td) / "run",
+                settings=settings,
+                allocator=allocator,
+            )
+
+            with self.assertRaisesRegex(
+                RuntimeError, "required resource profile 'gpu'.*not satisfiable"
+            ):
+                service.start()
+
+            self.assertFalse(service.endpoint.exists())
+            self.assertFalse((service.state_dir / "endpoint.json").exists())
+            preflight_status = service.status()["preflight"]
+            self.assertEqual(preflight_status["state"], "failed")
+            self.assertEqual(preflight_status["required_profile"], "gpu")
+            self.assertIn("accelerator_unavailable", preflight_status["error"])
+
+    def test_preflight_allows_declared_cpu_profile_on_cpu_only_host(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            allocator = _GPUAllocator("", limit=1)
+            allocator.snapshot = HostSnapshot(
+                8,
+                10,
+                10,
+                0,
+                accelerator_probe_state="unavailable",
+                accelerator_probe_reason="nvidia-smi is not installed",
+            )
+            service = ExperimentSchedulerService(
+                run_dir=Path(td) / "run",
+                settings=_settings(maximum=1),
+                allocator=allocator,
+            )
+
+            report = service.preflight()
+
+            self.assertEqual(report["state"], "ready")
+            self.assertEqual(report["required_profile"], "cpu")
+            cpu_job = service.submit(
+                {
+                    "command": [sys.executable, "-c", "pass"],
+                    "peer_id": "gen0_peer0",
+                    "generation_id": 0,
+                    "experiment_id": "declared-cpu-profile",
+                    "profile": "cpu",
+                }
+            )
+            self.assertEqual(cpu_job.state, "queued")
+
+    def test_preflight_allows_compatible_gpu_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            allocator = _GPUAllocator("GPU-a", limit=1)
+            allocator.snapshot = HostSnapshot(
+                8,
+                10,
+                10,
+                0,
+                gpus=(GPUDevice(0, "GPU-a", 40 * 1024, 0, 0),),
+                accelerator_probe_state="available",
+            )
+            settings = SchedulerSettings.from_dict(
+                {
+                    "mode": "central",
+                    "profiles": {
+                        "gpu": {
+                            "accelerator": "gpu",
+                            "gpu_count": 1,
+                            "gpu_memory_gb": 1,
+                            "gpu_utilization_pct": 20,
+                        }
+                    },
+                    "default_profile": "gpu",
+                }
+            )
+            service = ExperimentSchedulerService(
+                run_dir=Path(td) / "run",
+                settings=settings,
+                allocator=allocator,
+            )
+
+            self.assertEqual(service.preflight()["state"], "ready")
+
+    def test_generation_evaluation_guard_rejects_zero_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            service = ExperimentSchedulerService(
+                run_dir=Path(td) / "run",
+                settings=_settings(maximum=1),
+                allocator=_GPUAllocator("", limit=1),
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "completed without any evaluation jobs"):
+                service.require_generation_evaluation(0)
+
+            job = service.submit(
+                {
+                    "command": [sys.executable, "-c", "pass"],
+                    "peer_id": "gen0_peer0",
+                    "generation_id": 0,
+                    "experiment_id": "queued-does-not-count-as-evaluated",
+                    "profile": "cpu",
+                }
+            )
+            with self.assertRaisesRegex(RuntimeError, "queued=1"):
+                service.require_generation_evaluation(0)
+            self.assertEqual(job.state, "queued")
+
     def test_unavailable_accelerator_rejects_only_gpu_work(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             allocator = _GPUAllocator("", limit=2)

@@ -117,6 +117,50 @@ class ResourceProfile:
         return self.accelerator == "gpu" and self.gpu_count > 0
 
 
+def accelerator_profile_capability_error(
+    profile: ResourceProfile,
+    snapshot: HostSnapshot,
+) -> str:
+    """Return why a profile cannot use the host's observed accelerator.
+
+    An empty string means the profile is either CPU-only or structurally
+    compatible with the observed accelerator inventory. A probe that is
+    temporarily ``unknown`` is deliberately treated as unresolved rather than
+    as proof that the accelerator is unavailable.
+    """
+
+    if not profile.needs_gpu:
+        return ""
+    if snapshot.gpus:
+        if profile.gpu_count > len(snapshot.gpus):
+            return (
+                "accelerator_profile_unsatisfied: "
+                f"profile {profile.name!r} requests {profile.gpu_count} GPUs, "
+                f"but the host exposes {len(snapshot.gpus)}"
+            )
+        known_capacities = [
+            device.memory_total_mb for device in snapshot.gpus if device.memory_total_mb > 0
+        ]
+        if profile.gpu_memory_gb is not None and len(known_capacities) == len(snapshot.gpus):
+            requested_mb = int(profile.gpu_memory_gb * 1024)
+            capable_devices = sum(
+                requested_mb <= capacity_mb * 0.95 for capacity_mb in known_capacities
+            )
+            if capable_devices < profile.gpu_count:
+                return (
+                    "accelerator_profile_unsatisfied: "
+                    f"profile {profile.name!r} requests {profile.gpu_memory_gb:g} GiB "
+                    f"on each of {profile.gpu_count} GPUs, but only "
+                    f"{capable_devices} detected devices can satisfy it"
+                )
+        return ""
+    state = str(snapshot.accelerator_probe_state or "unknown")
+    if state in {"unavailable", "unsupported"}:
+        reason = str(snapshot.accelerator_probe_reason or "accelerator inventory unavailable")
+        return f"accelerator_{state}: {reason}"
+    return ""
+
+
 @dataclass
 class SchedulerSettings:
     """Validated central scheduler policy derived from the task specification."""
