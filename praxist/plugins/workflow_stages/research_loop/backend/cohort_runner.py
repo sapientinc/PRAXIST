@@ -1166,6 +1166,9 @@ async def run_generation_cohort(loop: Any, gen_id: int) -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
+    if scheduler is not None:
+        scheduler.require_generation_evaluation(gen_id)
+
     gen_results = list(prelaunch_results)
     for peer_id, result in zip(started_peer_ids, results, strict=False):
         if isinstance(result, Exception):

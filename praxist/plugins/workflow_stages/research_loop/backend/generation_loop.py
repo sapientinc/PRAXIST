@@ -674,6 +674,9 @@ class GenerationLoop:
                     # each iteration AND together at the end.
                     self._current_generation = gen_id
                 gen_results = await self._run_generation(gen_id)
+                scheduler = getattr(self, "_experiment_scheduler", None)
+                if scheduler is not None:
+                    scheduler.require_generation_evaluation(gen_id)
                 all_results.append(gen_results)
                 await complete_generation_boundary(
                     self,
