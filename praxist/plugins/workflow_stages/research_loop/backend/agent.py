@@ -92,6 +92,7 @@ from praxist.plugins.workflow_stages.research_loop.provider_env import (
     DEEPSEEK_CLAUDE_DEFAULT_HAIKU_MODEL,
     DEEPSEEK_CLAUDE_DEFAULT_MODEL,
     DEEPSEEK_CLAUDE_SDK_BASE_URL,
+    normalize_cheaperinference_base_url,
     normalize_openrouter_base_url,
     normalize_orcarouter_base_url,
 )
@@ -640,6 +641,8 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
         allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "OPENROUTER_API_KEY")
     elif provider_ref == "model_provider:orcarouter":
         allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ORCAROUTER_API_KEY")
+    elif provider_ref == "model_provider:cheaperinference":
+        allowed = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CHEAPER_INFERENCE_API_KEY")
     elif provider_ref == "model_provider:anthropic_messages":
         allowed = ("ANTHROPIC_API_KEY",)
     elif provider_ref == "model_provider:openai_compatible":
@@ -702,6 +705,8 @@ def _scoped_legacy_provider_env() -> dict[str, str]:
                 val = normalize_openrouter_base_url(val)
             if provider_ref == "model_provider:orcarouter" and var == "ANTHROPIC_BASE_URL":
                 val = normalize_orcarouter_base_url(val)
+            if provider_ref == "model_provider:cheaperinference" and var == "ANTHROPIC_BASE_URL":
+                val = normalize_cheaperinference_base_url(val)
             env[var] = val
     if provider_ref == CLOUDFLARE_PROVIDER_REF:
         cloudflare_key = os.environ.get(CLOUDFLARE_KEY_VAR, "")

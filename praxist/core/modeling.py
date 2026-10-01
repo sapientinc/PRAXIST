@@ -69,11 +69,13 @@ def _normalize_model_for_api_format(model: str, api_format: str) -> str:
     corrupt them. ``groq`` is the same case -- Groq publishes ids such as
     ``openai/gpt-oss-20b`` and ``groq/compound``, and the vendor segment is
     part of the id rather than an aggregator prefix. OpenRouter and OrcaRouter
-    likewise retain ``vendor/model``.
+    likewise retain ``vendor/model``. Cheaper Inference passes its gateway
+    model ids through unchanged.
     """
     if not model or api_format in {
         "openrouter",
         "orcarouter",
+        "cheaperinference",
         "groq",
         CLOUDFLARE_API_FORMAT,
     }:
@@ -259,7 +261,7 @@ def _capability_tags(api_format: str) -> list[str]:
         return ["offline_fixture", "deterministic"]
     if api_format == "anthropic_messages":
         return ["long_context", "prompt_cache", "tool_use"]
-    if api_format in {"openrouter", "orcarouter"}:
+    if api_format in {"openrouter", "orcarouter", "cheaperinference"}:
         return ["routing", "openai_compatible", "tool_use"]
     return ["openai_compatible", "tool_use"]
 

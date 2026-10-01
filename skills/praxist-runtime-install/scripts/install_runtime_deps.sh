@@ -255,6 +255,9 @@ provider_key_var() {
     orcarouter)
       printf '%s\n' "ORCAROUTER_API_KEY"
       ;;
+    cheaperinference)
+      printf '%s\n' "CHEAPER_INFERENCE_API_KEY"
+      ;;
     deepseek|deepseek_alias)
       printf '%s\n' "DEEPSEEK_API_KEY"
       ;;

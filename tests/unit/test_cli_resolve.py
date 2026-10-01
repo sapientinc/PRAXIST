@@ -56,6 +56,7 @@ class ResolveCliEndToEndTest(unittest.TestCase):
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
                     "ORCAROUTER_API_KEY": "",
+                    "CHEAPER_INFERENCE_API_KEY": "",
                 },
                 clear=False,
             ),

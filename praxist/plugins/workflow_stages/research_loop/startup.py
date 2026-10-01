@@ -173,6 +173,8 @@ def default_model_provider_for_task(task_ref: str, model_provider_ref: str | Non
         return "model_provider:openrouter"
     if os.environ.get("ORCAROUTER_API_KEY"):
         return "model_provider:orcarouter"
+    if os.environ.get("CHEAPER_INFERENCE_API_KEY"):
+        return "model_provider:cheaperinference"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "model_provider:anthropic_messages"
     return "model_provider:openrouter"

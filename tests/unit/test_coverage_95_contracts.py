@@ -415,6 +415,7 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             {
                 "OPENROUTER_API_KEY": "or-key",
                 "ORCAROUTER_API_KEY": "orca-key",
+                "CHEAPER_INFERENCE_API_KEY": "ci-key",
                 "ANTHROPIC_BASE_URL": "https://openrouter.ai/api/v1",
                 "ANTHROPIC_API_KEY": "anthropic-key",
                 "OPENAI_API_KEY": "openai-key",
@@ -438,6 +439,10 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             self.assertEqual(
                 stage._provider_env("model_provider:orcarouter")["ORCAROUTER_API_KEY"],
                 "orca-key",
+            )
+            self.assertEqual(
+                stage._provider_env("model_provider:cheaperinference")["CHEAPER_INFERENCE_API_KEY"],
+                "ci-key",
             )
             self.assertEqual(
                 stage._provider_env("model_provider:anthropic_messages")["ANTHROPIC_API_KEY"],
@@ -485,6 +490,14 @@ class StageAndAgentCoverage95ContractsTest(unittest.TestCase):
             orcarouter_env = stage._provider_env("model_provider:orcarouter")
         self.assertIsNone(orcarouter_env["ANTHROPIC_AUTH_TOKEN"])
         self.assertIsNone(orcarouter_env["ORCAROUTER_API_KEY"])
+
+        with patch.dict(os.environ, {}, clear=True):
+            cheaperinference_env = stage._provider_env("model_provider:cheaperinference")
+        self.assertIsNone(cheaperinference_env["ANTHROPIC_AUTH_TOKEN"])
+        self.assertIsNone(cheaperinference_env["CHEAPER_INFERENCE_API_KEY"])
+        self.assertEqual(
+            cheaperinference_env["ANTHROPIC_BASE_URL"], "https://api.cheaperinference.com"
+        )
 
     def test_research_loop_stage_execute_resolve_success_and_unknown_usage(self) -> None:
         from praxist.plugins.workflow_stages.research_loop import stage

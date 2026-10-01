@@ -22,6 +22,7 @@ runtime:
     - model_provider:anthropic_messages
     - model_provider:openrouter
     - model_provider:orcarouter
+    - model_provider:cheaperinference
     - model_provider:deepseek_alias
   cache_strategy: runtime_auto_cache
   event_schema: praxist.agent_event.v1

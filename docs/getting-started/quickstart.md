@@ -112,8 +112,8 @@ profiles neither require nor inspect this login.
 For sustained, cost-sensitive research, prefer an
 [open-source model API](../guides/open-source-model-apis.md) whose cache reuse,
 quality, and throughput have been checked on a representative workload. The
-selector includes maintained DeepSeek API, OpenRouter API, OrcaRouter API, and Anthropic API
-profiles. Enter the selected provider's key at the local masked prompt when
+selector includes maintained DeepSeek API, OpenRouter API, OrcaRouter API,
+Cheaper Inference API, and Anthropic API profiles. Enter the selected provider's key at the local masked prompt when
 requested.
 
 Other supported API-backed setup profiles remain available in the same selector. To inspect

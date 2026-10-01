@@ -24,6 +24,7 @@ runtime:
     - model_provider:openai_compatible
     - model_provider:openrouter
     - model_provider:orcarouter
+    - model_provider:cheaperinference
     - model_provider:deepseek_alias
     # Cloudflare Workers AI is OpenAI-compatible and reaches this runtime
     # through the codex relay; it has no Anthropic route, so it is
