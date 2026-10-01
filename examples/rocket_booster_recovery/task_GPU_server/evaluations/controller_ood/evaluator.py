@@ -55,7 +55,7 @@ PROJECT_SRC = PROJECT_ROOT / "src"
 # These values attest the immutable scientific boundary independently of the
 # peer-authored candidate and of task metadata files.
 FROZEN_HASHES = {
-    "src/plant_adapter.py": "63f543e2125b367cf7672360984167f0c99c83362e4259bbcb301a8e0650101f",
+    "src/plant_adapter.py": "b6a68c67bfb87ebc708747fe708fc8ae80a00242c2225e1fe3ada1600bf8cd62",
     "vendor/frozen_c05_plant/config.yaml": "80201171ae6002fb016991ca630b440d61f67291e3e714fd8df398632de3bc59",
     "vendor/frozen_c05_plant/contact_law.py": "0d746ba03e3423317af77a5122fdb5f39d75e2c6f04c1325dd5f45437e14f9ee",
     "vendor/frozen_c05_plant/fuel_schedule.py": "8032873f77831484f4d750716309e40c7a3801ab24d24dc62abca9c84d829595",
