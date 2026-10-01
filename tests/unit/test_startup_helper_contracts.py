@@ -76,6 +76,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                     "DEEPSEEK_API_KEY": "deepseek-key",
                     "OPENROUTER_API_KEY": "openrouter-key",
                     "ORCAROUTER_API_KEY": "",
+                    "CHEAPER_INFERENCE_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -90,6 +91,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "openrouter-key",
                     "ORCAROUTER_API_KEY": "",
+                    "CHEAPER_INFERENCE_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -104,6 +106,7 @@ class StartupHelperContractsTest(unittest.TestCase):
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
                     "ORCAROUTER_API_KEY": "orcarouter-key",
+                    "CHEAPER_INFERENCE_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -118,6 +121,22 @@ class StartupHelperContractsTest(unittest.TestCase):
                     "DEEPSEEK_API_KEY": "",
                     "OPENROUTER_API_KEY": "",
                     "ORCAROUTER_API_KEY": "",
+                    "CHEAPER_INFERENCE_API_KEY": "cheaperinference-key",
+                    "ANTHROPIC_API_KEY": "anthropic-key",
+                },
+                clear=False,
+            ):
+                self.assertEqual(
+                    startup.default_model_provider_for_task("task:x"),
+                    "model_provider:cheaperinference",
+                )
+            with patch.dict(
+                os.environ,
+                {
+                    "DEEPSEEK_API_KEY": "",
+                    "OPENROUTER_API_KEY": "",
+                    "ORCAROUTER_API_KEY": "",
+                    "CHEAPER_INFERENCE_API_KEY": "",
                     "ANTHROPIC_API_KEY": "anthropic-key",
                 },
                 clear=False,
@@ -211,6 +230,22 @@ class StartupHelperContractsTest(unittest.TestCase):
                 provider_env.freeze_provider_env(
                     "model_provider:orcarouter", {"ORCAROUTER_API_KEY": "k"}
                 )["ORCAROUTER_API_KEY"],
+                "k",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:cheaperinference",
+                    {
+                        "CHEAPER_INFERENCE_BASE_URL": "https://api.cheaperinference.com/v1",
+                        "CHEAPER_INFERENCE_API_KEY": "key",
+                    },
+                )["ANTHROPIC_BASE_URL"],
+                "https://api.cheaperinference.com",
+            )
+            self.assertEqual(
+                provider_env.freeze_provider_env(
+                    "model_provider:cheaperinference", {"CHEAPER_INFERENCE_API_KEY": "k"}
+                )["CHEAPER_INFERENCE_API_KEY"],
                 "k",
             )
             self.assertEqual(

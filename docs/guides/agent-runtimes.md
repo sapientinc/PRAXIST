@@ -131,6 +131,7 @@ The Codex app-server consumes the Responses protocol. API provider routing is:
 | `model_provider:deepseek_alias` | Private run-scoped `codex-relay` to DeepSeek Chat Completions |
 | `model_provider:openrouter` | Private run-scoped `codex-relay` to OpenRouter Chat Completions |
 | `model_provider:orcarouter` | Private run-scoped `codex-relay` to OrcaRouter Chat Completions |
+| `model_provider:cheaperinference` | Private run-scoped `codex-relay` to Cheaper Inference Chat Completions |
 | `model_provider:cloudflare` | Private run-scoped `codex-relay` to Cloudflare Workers AI Chat Completions |
 | `model_provider:groq_alias` | Private run-scoped `codex-relay` to Groq Chat Completions |
 | `model_provider:mistral_alias` | Private run-scoped `codex-relay` to Mistral Chat Completions |

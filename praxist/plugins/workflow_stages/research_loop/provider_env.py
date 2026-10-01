@@ -14,6 +14,8 @@ OPENROUTER_CLAUDE_SDK_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_OPENAI_COMPAT_BASE_URL = "https://openrouter.ai/api/v1"
 ORCAROUTER_CLAUDE_SDK_BASE_URL = "https://api.orcarouter.ai"
 ORCAROUTER_OPENAI_COMPAT_BASE_URL = "https://api.orcarouter.ai/v1"
+CHEAPERINFERENCE_CLAUDE_SDK_BASE_URL = "https://api.cheaperinference.com"
+CHEAPERINFERENCE_OPENAI_COMPAT_BASE_URL = "https://api.cheaperinference.com/v1"
 DEEPSEEK_CLAUDE_SDK_BASE_URL = "https://api.deepseek.com/anthropic"
 DEEPSEEK_CLAUDE_DEFAULT_MODEL = "deepseek-v4-pro[1m]"
 DEEPSEEK_CLAUDE_DEFAULT_HAIKU_MODEL = "deepseek-v4-flash"
@@ -48,6 +50,20 @@ def normalize_orcarouter_base_url(base_url: str) -> str:
     return cleaned
 
 
+def normalize_cheaperinference_base_url(base_url: str) -> str:
+    """Return the Cheaper Inference base URL expected by Claude SDK transports.
+
+    Mirrors :func:`normalize_openrouter_base_url`: the Cheaper Inference
+    OpenAI-compatible endpoint includes ``/v1``, but Claude SDK calls must use
+    the parent endpoint or requests become ``/v1/v1/messages``.
+    """
+
+    cleaned = str(base_url).rstrip("/")
+    if cleaned == CHEAPERINFERENCE_OPENAI_COMPAT_BASE_URL:
+        return CHEAPERINFERENCE_CLAUDE_SDK_BASE_URL
+    return cleaned
+
+
 def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict[str, str | None]:
     """Capture the provider environment surface passed into research-loop runtimes."""
 
@@ -64,6 +80,7 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
         "CLAUDE_CODE_EFFORT_LEVEL": None,
         "OPENROUTER_API_KEY": None,
         "ORCAROUTER_API_KEY": None,
+        "CHEAPER_INFERENCE_API_KEY": None,
         "OPENAI_API_KEY": None,
         "DEEPSEEK_API_KEY": None,
         CLOUDFLARE_KEY_VAR: None,
@@ -108,6 +125,19 @@ def freeze_provider_env(model_provider_ref: str, env: Mapping[str, str]) -> dict
             "ANTHROPIC_BASE_URL": base_url,
             "ANTHROPIC_AUTH_TOKEN": auth_token,
             "ORCAROUTER_API_KEY": auth_token,
+        }
+    if model_provider_ref == "model_provider:cheaperinference":
+        base_url = normalize_cheaperinference_base_url(
+            env.get("ANTHROPIC_BASE_URL")
+            or env.get("CHEAPER_INFERENCE_BASE_URL")
+            or CHEAPERINFERENCE_CLAUDE_SDK_BASE_URL
+        )
+        auth_token = env.get("ANTHROPIC_AUTH_TOKEN") or env.get("CHEAPER_INFERENCE_API_KEY")
+        return {
+            **base,
+            "ANTHROPIC_BASE_URL": base_url,
+            "ANTHROPIC_AUTH_TOKEN": auth_token,
+            "CHEAPER_INFERENCE_API_KEY": auth_token,
         }
     if model_provider_ref == "model_provider:anthropic_messages":
         return {

@@ -128,6 +128,17 @@ SETUP_PROFILES: tuple[SetupProfile, ...] = (
         "requires an OrcaRouter API key entered only through the local masked prompt",
     ),
     SetupProfile(
+        "cheaperinference-api",
+        "Cheaper Inference API",
+        "Cheaper Inference model routing through claude_sdk",
+        "cheaperinference",
+        "claude_sdk",
+        "gpt-5.4-mini",
+        True,
+        "provider_api_key",
+        "requires a Cheaper Inference API key entered only through the local masked prompt",
+    ),
+    SetupProfile(
         "anthropic-api",
         "Anthropic API",
         "Anthropic Messages through claude_sdk",

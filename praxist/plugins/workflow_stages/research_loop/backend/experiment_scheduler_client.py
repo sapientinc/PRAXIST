@@ -47,6 +47,7 @@ def is_sensitive_environment_name(name: str) -> bool:
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "ORCAROUTER_API_KEY",
+        "CHEAPER_INFERENCE_API_KEY",
         "DEEPSEEK_API_KEY",
         "API_KEY",
         "PASSWORD",

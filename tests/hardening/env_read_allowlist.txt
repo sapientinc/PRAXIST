@@ -182,6 +182,8 @@ praxist/plugins/workflow_stages/research_loop/stage.py::ANTHROPIC_DEFAULT_HAIKU_
 praxist/plugins/workflow_stages/research_loop/stage.py::ANTHROPIC_DEFAULT_OPUS_MODEL
 praxist/plugins/workflow_stages/research_loop/stage.py::ANTHROPIC_DEFAULT_SONNET_MODEL
 praxist/plugins/workflow_stages/research_loop/stage.py::ANTHROPIC_MODEL
+praxist/plugins/workflow_stages/research_loop/stage.py::CHEAPER_INFERENCE_API_KEY
+praxist/plugins/workflow_stages/research_loop/stage.py::CHEAPER_INFERENCE_BASE_URL
 praxist/plugins/workflow_stages/research_loop/stage.py::CLAUDE_CODE_EFFORT_LEVEL
 praxist/plugins/workflow_stages/research_loop/stage.py::CLAUDE_CODE_SUBAGENT_MODEL
 praxist/plugins/workflow_stages/research_loop/stage.py::DEEPSEEK_ANTHROPIC_BASE_URL
@@ -196,6 +198,7 @@ praxist/plugins/workflow_stages/research_loop/stage.py::ORCAROUTER_BASE_URL
 praxist/plugins/workflow_stages/research_loop/stage.py::XAI_API_KEY
 # startup.py reads PATH for subprocess env construction.
 praxist/plugins/workflow_stages/research_loop/startup.py::ANTHROPIC_API_KEY
+praxist/plugins/workflow_stages/research_loop/startup.py::CHEAPER_INFERENCE_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::DEEPSEEK_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::OPENROUTER_API_KEY
 praxist/plugins/workflow_stages/research_loop/startup.py::ORCAROUTER_API_KEY

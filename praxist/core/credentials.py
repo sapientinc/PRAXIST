@@ -50,6 +50,12 @@ class CredentialResolver:
         ("OPENROUTER_API_KEY", "model_provider", "openrouter", "model_provider:openrouter"),
         ("ORCAROUTER_API_KEY", "model_provider", "orcarouter", "model_provider:orcarouter"),
         (
+            "CHEAPER_INFERENCE_API_KEY",
+            "model_provider",
+            "cheaperinference",
+            "model_provider:cheaperinference",
+        ),
+        (
             "OPENAI_API_KEY",
             "model_provider",
             "openai_compatible",

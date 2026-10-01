@@ -14,6 +14,8 @@ This page documents executable generic plugin boundaries.
 
 ::: praxist.plugins.model_providers.orcarouter.adapter
 
+::: praxist.plugins.model_providers.cheaperinference.adapter
+
 ::: praxist.plugins.model_providers.anthropic_messages.adapter
 
 ::: praxist.plugins.model_providers.openai_compatible.adapter

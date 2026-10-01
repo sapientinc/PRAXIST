@@ -45,6 +45,7 @@ PROVIDER_KEY_MAP: dict[str, str] = {
     "xai": "XAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "orcarouter": "ORCAROUTER_API_KEY",
+    "cheaperinference": "CHEAPER_INFERENCE_API_KEY",
     CLOUDFLARE_PROVIDER: CLOUDFLARE_KEY_VAR,
     "brave": "BRAVE_API_KEY",
 }
@@ -55,6 +56,7 @@ PROVIDER_REF_FOR_SHORT_NAME: dict[str, str] = {
     "openai": "model_provider:openai_compatible",
     "openrouter": "model_provider:openrouter",
     "orcarouter": "model_provider:orcarouter",
+    "cheaperinference": "model_provider:cheaperinference",
     "deepseek": "model_provider:deepseek_alias",
     CLOUDFLARE_PROVIDER: CLOUDFLARE_PROVIDER_REF,
     "groq": "model_provider:groq_alias",
@@ -74,6 +76,7 @@ PROVIDER_BASE_URL: dict[str, str] = {
     "xai": "https://api.x.ai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "orcarouter": "https://api.orcarouter.ai/v1",
+    "cheaperinference": "https://api.cheaperinference.com/v1",
 }
 
 

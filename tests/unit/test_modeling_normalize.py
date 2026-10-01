@@ -36,6 +36,14 @@ class NormalizeModelForApiFormatTest(unittest.TestCase):
             "orcarouter/auto",
         )
 
+    def test_cheaperinference_keeps_gateway_model_id(self) -> None:
+        for model in ("gpt-5.4-mini", "google/gemini-3.5-flash-lite"):
+            with self.subTest(model=model):
+                self.assertEqual(
+                    modeling._normalize_model_for_api_format(model, "cheaperinference"),
+                    model,
+                )
+
     def test_cloudflare_keeps_full_model_id(self) -> None:
         self.assertEqual(
             modeling._normalize_model_for_api_format(

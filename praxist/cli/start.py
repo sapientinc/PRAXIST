@@ -129,6 +129,7 @@ runtime and the production default per AGENTS.md §7.
 
 OPENROUTER_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["openrouter"]
 ORCAROUTER_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["orcarouter"]
+CHEAPERINFERENCE_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["cheaperinference"]
 ANTHROPIC_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["anthropic"]
 OPENAI_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["openai"]
 DEEPSEEK_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME["deepseek"]
@@ -136,6 +137,7 @@ CLOUDFLARE_PROVIDER_REF = PROVIDER_REF_FOR_SHORT_NAME[CLOUDFLARE_PROVIDER]
 
 OPENROUTER_DEFAULT_MODEL = "anthropic/claude-opus-4.7"
 ORCAROUTER_DEFAULT_MODEL = "orcarouter/auto"
+CHEAPERINFERENCE_DEFAULT_MODEL = "gpt-5.4-mini"
 ANTHROPIC_DEFAULT_MODEL = "claude-opus-4-7"
 DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro[1m]"
 CLOUDFLARE_DEFAULT_MODEL = CLOUDFLARE_MODEL
@@ -860,6 +862,8 @@ def _resolve_provider_ref(raw: str | None, agent_system: str) -> str:
         return OPENROUTER_PROVIDER_REF
     if getenv("ORCAROUTER_API_KEY", ""):
         return ORCAROUTER_PROVIDER_REF
+    if getenv("CHEAPER_INFERENCE_API_KEY", ""):
+        return CHEAPERINFERENCE_PROVIDER_REF
     if agent_system == "codex_sdk":
         default_short = default_provider_for_agent_system(agent_system)
         return PROVIDER_REF_FOR_SHORT_NAME.get(default_short, OPENAI_PROVIDER_REF)
@@ -881,6 +885,8 @@ def _resolve_model(raw: str | None, provider_ref: str, agent_system: str) -> str
         return OPENROUTER_DEFAULT_MODEL
     if provider_ref == ORCAROUTER_PROVIDER_REF:
         return ORCAROUTER_DEFAULT_MODEL
+    if provider_ref == CHEAPERINFERENCE_PROVIDER_REF:
+        return CHEAPERINFERENCE_DEFAULT_MODEL
     if provider_ref == DEEPSEEK_PROVIDER_REF:
         return DEEPSEEK_DEFAULT_MODEL
     if provider_ref == CLOUDFLARE_PROVIDER_REF:
